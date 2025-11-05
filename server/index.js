@@ -14,6 +14,7 @@ import reservationRoutes from "./routes/reservations.js"
 import serviceRoutes from "./routes/services.js"
 import paymentRoutes from "./routes/payments.js"
 import dashboardRoutes from "./routes/dashboard.js"
+import clientRoutes from "./routes/clients.js" // AGREGAR ESTA LÍNEA
 
 // Importar middleware
 import { errorHandler } from "./middleware/errorHandler.js"
@@ -67,13 +68,14 @@ app.use("/api/auth", authRoutes)
 // 🔓 ACCESO TEMPORAL SIN AUTENTICACIÓN - COMENTA LA SIGUIENTE LÍNEA:
 // app.use("/api", authenticateToken)
 
-// 🎯 RUTAS PROTEGidas PERO TEMPORALMENTE SIN AUTENTICACIÓN
+// 🎯 RUTAS PROTEGIDAS PERO TEMPORALMENTE SIN AUTENTICACIÓN
 app.use("/api/users", userRoutes)
 app.use("/api/rooms", roomRoutes)
 app.use("/api/reservations", reservationRoutes)
 app.use("/api/services", serviceRoutes)
 app.use("/api/payments", paymentRoutes)
 app.use("/api/dashboard", dashboardRoutes)
+app.use("/api/clients", clientRoutes) // AGREGAR ESTA LÍNEA
 
 // Ruta de salud del servidor
 app.get("/api/health", (req, res) => {
@@ -102,6 +104,11 @@ app.listen(PORT, () => {
   console.log(`🌍 Entorno: ${process.env.NODE_ENV || "development"}`)
   console.log(`📊 API disponible en: http://localhost:${PORT}/api`)
   console.log(`🔓 MODO: Autenticación temporalmente desactivada`)
+  console.log(`📋 Rutas disponibles:`)
+  console.log(`   GET  /api/health`)
+  console.log(`   GET  /api/services`)
+  console.log(`   POST /api/clients`)
+  console.log(`   POST /api/reservations`)
 })
 
 // Manejo de errores no capturados

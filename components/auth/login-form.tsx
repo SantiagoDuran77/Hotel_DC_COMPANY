@@ -24,15 +24,21 @@ export default function LoginForm() {
     setIsLoading(true)
 
     try {
+      console.log('🎯 Starting login process...')
       const user = await authUtils.login(email, password)
 
+      console.log('👤 User returned from login:', user)
+      
       if (user) {
         const redirectPath = authUtils.getDashboardRoute(user)
+        console.log('🔄 Redirecting to:', redirectPath)
         router.push(redirectPath)
       } else {
+        console.log('❌ No user returned')
         setError("Credenciales incorrectas. Verifica tu email y contraseña.")
       }
     } catch (err: any) {
+      console.error('💥 Login error:', err)
       setError(err.message || "Error al iniciar sesión. Inténtalo de nuevo.")
     } finally {
       setIsLoading(false)
@@ -40,6 +46,7 @@ export default function LoginForm() {
   }
 
   const quickLogin = (email: string, role: string) => {
+    console.log('⚡ Quick login:', email, role)
     setEmail(email)
     // Para usuarios existentes, usar solo primeros 4 caracteres
     if (email.includes('hoteldc.com')) {

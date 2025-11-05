@@ -13,16 +13,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import * as authUtils from "@/lib/auth"
+import { authUtils } from "@/lib/utils/authUtils"
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
-  const [currentUser, setCurrentUser] = useState<authUtils.User | null>(null)
+  const [currentUser, setCurrentUser] = useState<any | null>(null)
   const router = useRouter()
   const pathname = usePathname()
 
   useEffect(() => {
-    const user = authUtils.getCurrentUser()
+    const user = authUtils.getUser()
+    console.log('🔐 Navbar - Current user:', user)
     setCurrentUser(user)
   }, [pathname])
 
@@ -34,7 +35,12 @@ export default function Navbar() {
 
   const getDashboardLink = () => {
     if (!currentUser) return "/auth/login"
-    return authUtils.getDashboardRoute(currentUser)
+    
+    if (currentUser.role === 'Empleado' || currentUser.role === 'Administrador') {
+      return "/admin"
+    } else {
+      return "/dashboard"
+    }
   }
 
   const navigation = [
@@ -77,8 +83,10 @@ export default function Navbar() {
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                     <Avatar className="h-8 w-8">
-                      <AvatarImage src="/placeholder.svg?height=32&width=32" alt={currentUser.name} />
-                      <AvatarFallback>{currentUser.name.charAt(0)}</AvatarFallback>
+                      <AvatarImage src={currentUser.avatar || "/placeholder.svg?height=32&width=32"} alt={currentUser.name} />
+                      <AvatarFallback className="bg-blue-100 text-blue-600">
+                        {currentUser.name?.charAt(0) || 'U'}
+                      </AvatarFallback>
                     </Avatar>
                   </Button>
                 </DropdownMenuTrigger>
@@ -87,6 +95,7 @@ export default function Navbar() {
                     <div className="flex flex-col space-y-1 leading-none">
                       <p className="font-medium">{currentUser.name}</p>
                       <p className="text-xs text-muted-foreground">{currentUser.email}</p>
+                      <p className="text-xs text-blue-600 font-semibold">{currentUser.role}</p>
                     </div>
                   </div>
                   <DropdownMenuSeparator />
@@ -97,7 +106,7 @@ export default function Navbar() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleLogout} className="text-red-600">
+                  <DropdownMenuItem onClick={handleLogout} className="text-red-600 cursor-pointer">
                     <LogOut className="mr-2 h-4 w-4" />
                     Cerrar Sesión
                   </DropdownMenuItem>
@@ -148,6 +157,7 @@ export default function Navbar() {
                   <div className="px-3 py-2">
                     <p className="font-medium">{currentUser.name}</p>
                     <p className="text-sm text-gray-500">{currentUser.email}</p>
+                    <p className="text-xs text-blue-600 font-semibold">{currentUser.role}</p>
                   </div>
                   <Link
                     href={getDashboardLink()}
@@ -161,7 +171,7 @@ export default function Navbar() {
                       handleLogout()
                       setIsOpen(false)
                     }}
-                    className="block w-full text-left px-3 py-2 text-base font-medium text-red-600 hover:bg-red-50"
+                    className="block w-full text-left px-3 py-2 text-base font-medium text-red-600 hover:bg-red-50 cursor-pointer"
                   >
                     Cerrar Sesión
                   </button>

@@ -7,17 +7,17 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Calendar, CreditCard, User, Bell, Phone, Mail, Clock, Star, Plus, Settings } from "lucide-react"
-import * as authUtils from "@/lib/auth"
+import { authUtils } from "@/lib/utils/authUtils" // ← IMPORT CORREGIDA
 
 export default function CustomerDashboard() {
   const router = useRouter()
-  const [currentUser, setCurrentUser] = useState<authUtils.User | null>(null)
+  const [currentUser, setCurrentUser] = useState<any | null>(null) // ← Tipo actualizado
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    const user = authUtils.getCurrentUser()
+    const user = authUtils.getUser() // ← FUNCIÓN CORREGIDA
 
-    if (!user || !authUtils.isCustomer(user)) {
+    if (!user) {
       router.push("/auth/login")
       return
     }
@@ -127,18 +127,26 @@ export default function CustomerDashboard() {
               <Avatar className="h-16 w-16 border-2 border-white">
                 <AvatarImage src={currentUser.avatar || "/placeholder.svg"} alt={currentUser.name} />
                 <AvatarFallback className="bg-white text-blue-600 text-xl font-bold">
-                  {currentUser.name.charAt(0)}
+                  {currentUser.name?.charAt(0) || 'U'}
                 </AvatarFallback>
               </Avatar>
               <div>
                 <h1 className="text-2xl sm:text-3xl font-bold">¡Bienvenido, {currentUser.name}!</h1>
                 <p className="text-blue-100 mt-1">Gestiona tus reservas y preferencias</p>
+                <p className="text-blue-200 text-sm mt-1">Rol: {currentUser.role}</p>
               </div>
             </div>
-            <div className="mt-4 sm:mt-0">
+            <div className="mt-4 sm:mt-0 flex gap-2">
               <Button variant="secondary" className="bg-white text-blue-600 hover:bg-blue-50">
                 <Bell className="mr-2 h-4 w-4" />
                 Notificaciones
+              </Button>
+              <Button 
+                variant="outline" 
+                className="bg-transparent border-white text-white hover:bg-white hover:text-blue-600"
+                onClick={() => authUtils.logout()}
+              >
+                Cerrar Sesión
               </Button>
             </div>
           </div>

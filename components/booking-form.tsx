@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Calendar, CreditCard, Info } from "lucide-react"
+import { Calendar, CreditCard, Info, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -20,6 +20,18 @@ interface BookingFormProps {
   price: number
 }
 
+interface Service {
+  id: string
+  name: string
+  description: string
+  price: number
+  category: string
+  duration: string
+  icon: string
+  isPopular?: boolean
+  cantidad?: number
+}
+
 export default function BookingForm({ roomId, price }: BookingFormProps) {
   const router = useRouter()
   const [checkIn, setCheckIn] = useState<Date | undefined>(undefined)
@@ -29,38 +41,40 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
   const [promoCode, setPromoCode] = useState("")
   const [promoApplied, setPromoApplied] = useState(false)
   const [showPromoField, setShowPromoField] = useState(false)
+  
+  // Nuevos estados para datos del cliente
+  const [clientData, setClientData] = useState({
+    nombre: "",
+    apellido: "",
+    email: "",
+    telefono: "",
+    nacionalidad: ""
+  })
 
   // Estados para servicios
-  const [selectedServices, setSelectedServices] = useState<string[]>([])
-  const [selectedPackages, setSelectedPackages] = useState<string[]>([])
+  const [selectedServices, setSelectedServices] = useState<Service[]>([])
 
   const nights = checkIn && checkOut ? differenceInDays(checkOut, checkIn) : 0
 
   // Calcular precio con descuento si se aplica un código promocional
-  const discount = promoApplied ? 0.15 : 0 // 15% de descuento
+  const discount = promoApplied ? 0.15 : 0
   const roomPriceWithDiscount = price * (1 - discount)
 
   // Calcular precios
   const roomSubtotal = nights * roomPriceWithDiscount
-  const servicesTotal = calculateServicesTotal()
+  const servicesTotal = selectedServices.reduce((total, service) => 
+    total + (service.price * (service.cantidad || 1)), 0
+  )
   const subtotal = roomSubtotal + servicesTotal
-  const taxes = subtotal * 0.12 // 12% de impuestos
-  const serviceFee = subtotal * 0.05 // 5% de tarifa de servicio
+  const taxes = subtotal * 0.12
+  const serviceFee = subtotal * 0.05
   const totalPrice = subtotal + taxes + serviceFee
-
-  function calculateServicesTotal() {
-    // Esta función debería estar definida en el componente ServicesSelector
-    // Por ahora, haremos un cálculo básico
-    return 0
-  }
 
   const handleCheckInChange = (date: Date | undefined) => {
     setCheckIn(date)
-
     if (date && checkOut && checkOut <= date) {
       setCheckOut(addDays(date, 1))
     }
-
     if (date && !checkOut) {
       setCheckOut(addDays(date, 1))
     }
@@ -74,54 +88,164 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
     }
   }
 
-  const handleServiceChange = (serviceId: string, selected: boolean) => {
-    if (selected) {
-      setSelectedServices([...selectedServices, serviceId])
-    } else {
-      setSelectedServices(selectedServices.filter((id) => id !== serviceId))
-    }
+  const handleServiceChange = (services: Service[]) => {
+    setSelectedServices(services)
   }
 
-  const handlePackageChange = (packageId: string, selected: boolean) => {
-    if (selected) {
-      setSelectedPackages([...selectedPackages, packageId])
-    } else {
-      setSelectedPackages(selectedPackages.filter((id) => id !== packageId))
-    }
+  const handleClientDataChange = (field: string, value: string) => {
+    setClientData(prev => ({
+      ...prev,
+      [field]: value
+    }))
   }
 
-  const handleBookNow = () => {
+  const handleBookNow = async () => {
     if (!checkIn || !checkOut) {
       alert("Por favor seleccione fechas de entrada y salida")
       return
     }
 
+    // Validar datos del cliente
+    if (!clientData.nombre || !clientData.apellido || !clientData.email) {
+      alert("Por favor complete todos los datos personales requeridos")
+      return
+    }
+
     setIsLoading(true)
 
-    setTimeout(() => {
-      const params = new URLSearchParams()
-      params.append("roomId", roomId)
-      params.append("checkIn", format(checkIn, "yyyy-MM-dd"))
-      params.append("checkOut", format(checkOut, "yyyy-MM-dd"))
-      params.append("guests", guests.toString())
-      params.append("price", roomPriceWithDiscount.toString())
-      params.append("nights", nights.toString())
-      params.append("total", totalPrice.toString())
-      params.append("discount", promoApplied ? "true" : "false")
-      params.append("services", JSON.stringify(selectedServices))
-      params.append("packages", JSON.stringify(selectedPackages))
+    try {
+      // Primero crear el cliente si no existe
+      const clientResponse = await fetch('http://localhost:5000/api/clients', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nombre_cliente: clientData.nombre,
+          apellido_cliente: clientData.apellido,
+          correo_cliente: clientData.email,
+          telefono_cliente: clientData.telefono,
+          nacionalidad: clientData.nacionalidad
+        })
+      })
 
-      router.push(`/booking?${params.toString()}`)
-    }, 800)
+      const clientResult = await clientResponse.json()
+      
+      if (!clientResponse.ok) {
+        throw new Error(clientResult.error || 'Error al crear cliente')
+      }
+
+      console.log('✅ Client created:', clientResult.client_id)
+
+      // Preparar servicios para la reserva
+      const serviciosReserva = selectedServices.map(service => ({
+        id_servicio: parseInt(service.id),
+        cantidad: service.cantidad || 1,
+        precio_total: service.price * (service.cantidad || 1)
+      }))
+
+      console.log('📦 Services for reservation:', serviciosReserva)
+
+      // Crear la reserva
+      const reservationResponse = await fetch('http://localhost:5000/api/reservations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          cliente_id: clientResult.client_id,
+          habitacion_id: parseInt(roomId),
+          fecha_inicio: format(checkIn, "yyyy-MM-dd"),
+          fecha_fin: format(checkOut, "yyyy-MM-dd"),
+          servicios: serviciosReserva
+        })
+      })
+
+      const reservationResult = await reservationResponse.json()
+      
+      if (!reservationResponse.ok) {
+        throw new Error(reservationResult.error || 'Error al crear reserva')
+      }
+
+      console.log('✅ Reservation created:', reservationResult.reservation_id)
+
+      // Redirigir a confirmación
+      router.push(`/booking/confirmation?reservation_id=${reservationResult.reservation_id}`)
+
+    } catch (error) {
+      console.error('❌ Error creating reservation:', error)
+      alert('Error al crear la reserva. Por favor intente nuevamente.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="dates" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+      <Tabs defaultValue="client" className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="client">Datos Personales</TabsTrigger>
           <TabsTrigger value="dates">Fechas y Huéspedes</TabsTrigger>
-          <TabsTrigger value="services">Servicios Adicionales</TabsTrigger>
+          <TabsTrigger value="services">Servicios</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="client" className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="nombre">Nombre *</Label>
+              <Input
+                id="nombre"
+                value={clientData.nombre}
+                onChange={(e) => handleClientDataChange('nombre', e.target.value)}
+                placeholder="Tu nombre"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="apellido">Apellido *</Label>
+              <Input
+                id="apellido"
+                value={clientData.apellido}
+                onChange={(e) => handleClientDataChange('apellido', e.target.value)}
+                placeholder="Tu apellido"
+                required
+              />
+            </div>
+          </div>
+          
+          <div>
+            <Label htmlFor="email">Email *</Label>
+            <Input
+              id="email"
+              type="email"
+              value={clientData.email}
+              onChange={(e) => handleClientDataChange('email', e.target.value)}
+              placeholder="tu@email.com"
+              required
+            />
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="telefono">Teléfono</Label>
+              <Input
+                id="telefono"
+                value={clientData.telefono}
+                onChange={(e) => handleClientDataChange('telefono', e.target.value)}
+                placeholder="+57 300 123 4567"
+              />
+            </div>
+            <div>
+              <Label htmlFor="nacionalidad">Nacionalidad</Label>
+              <Input
+                id="nacionalidad"
+                value={clientData.nacionalidad}
+                onChange={(e) => handleClientDataChange('nacionalidad', e.target.value)}
+                placeholder="Colombiana"
+              />
+            </div>
+          </div>
+        </TabsContent>
 
         <TabsContent value="dates" className="space-y-4">
           <div>
@@ -238,9 +362,7 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
         <TabsContent value="services" className="space-y-4">
           <ServicesSelector
             selectedServices={selectedServices}
-            selectedPackages={selectedPackages}
             onServiceChange={handleServiceChange}
-            onPackageChange={handlePackageChange}
           />
         </TabsContent>
       </Tabs>
@@ -249,7 +371,7 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
         <div className="border-t pt-4 mt-4 space-y-2">
           <div className="flex justify-between">
             <span className="text-gray-600">
-              Habitación: ${roomPriceWithDiscount} x {nights} {nights === 1 ? "noche" : "noches"}
+              Habitación: ${roomPriceWithDiscount.toFixed(2)} x {nights} {nights === 1 ? "noche" : "noches"}
             </span>
             <span>${roomSubtotal.toFixed(2)}</span>
           </div>
@@ -289,28 +411,23 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
         <Badge variant="outline" className="mb-2">
           Cancelación gratuita hasta 48h antes
         </Badge>
-        <Button onClick={handleBookNow} className="w-full" disabled={!checkIn || !checkOut || isLoading}>
+        <Button 
+          onClick={handleBookNow} 
+          className="w-full" 
+          disabled={!checkIn || !checkOut || isLoading || !clientData.nombre || !clientData.apellido || !clientData.email}
+        >
           {isLoading ? (
             <span className="flex items-center">
-              <svg
-                className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                ></path>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              Procesando...
+              Creando Reserva...
             </span>
           ) : (
             <>
               <CreditCard className="mr-2 h-4 w-4" />
-              Reservar Ahora
+              Confirmar Reserva
             </>
           )}
         </Button>
