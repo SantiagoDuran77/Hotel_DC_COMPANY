@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Eye, EyeOff, Mail, Lock, User, Phone } from "lucide-react"
+import { authUtils } from "@/lib/utils/authUtils"
 
 export default function RegisterForm() {
   const [formData, setFormData] = useState({
@@ -38,12 +39,20 @@ export default function RegisterForm() {
     }
 
     try {
-      // Simular registro exitoso
-      setTimeout(() => {
-        router.push("/auth/login")
-      }, 1000)
-    } catch (error) {
-      setError("Error al crear la cuenta. Por favor, inténtelo de nuevo.")
+      // Registro real con backend
+      await authUtils.register({
+        nombre: formData.name,
+        email: formData.email,
+        password: formData.password,
+        telefono: formData.phone,
+        direccion: "",
+        nacionalidad: ""
+      })
+
+      // Redirigir a login después de registro exitoso
+      router.push("/auth/login?message=registered")
+    } catch (error: any) {
+      setError(error.message || "Error al crear la cuenta. Por favor, inténtelo de nuevo.")
     } finally {
       setIsLoading(false)
     }

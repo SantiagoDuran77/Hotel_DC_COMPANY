@@ -1,33 +1,80 @@
-import { rooms } from "./data"
 import type { Room } from "./types"
 
+const API_BASE_URL = 'http://localhost:5000/api'
+
 export async function getRooms(): Promise<Room[]> {
-  // In a real application, this would fetch data from a database or API
-  // For this example, we're using static data
-  return [...rooms] // Return a copy to avoid mutations
+  try {
+    const response = await fetch(`${API_BASE_URL}/rooms`)
+    const data = await response.json()
+    
+    // Adaptar la respuesta del backend a tu tipo Room
+    return data.rooms.map((room: any) => ({
+      id: room.id.toString(),
+      name: `Habitación ${room.numero}`,
+      type: room.tipo,
+      price: parseFloat(room.precio),
+      capacity: room.capacidad || 2,
+      description: room.descripcion || '',
+      isAvailable: room.estado === 'Disponible',
+      image: '/room-placeholder.jpg', // Puedes agregar imágenes después
+      amenities: room.servicios_incluidos ? room.servicios_incluidos.split(', ') : []
+    }))
+  } catch (error) {
+    console.error('Error fetching rooms:', error)
+    return []
+  }
 }
 
 export async function getRoomById(id: string): Promise<Room> {
-  // En una aplicación real, esto obtendría datos de una base de datos o API
-  // Para este ejemplo, estamos usando datos estáticos
-  const room = rooms.find((room) => room.id === id)
+  try {
+    const response = await fetch(`${API_BASE_URL}/rooms/${id}`)
+    const room = await response.json()
 
-  if (!room) {
+    return {
+      id: room.id.toString(),
+      name: `Habitación ${room.numero}`,
+      type: room.tipo,
+      price: parseFloat(room.precio),
+      capacity: room.capacidad || 2,
+      description: room.descripcion || '',
+      isAvailable: room.estado === 'Disponible',
+      image: '/room-placeholder.jpg',
+      amenities: room.servicios_incluidos ? room.servicios_incluidos.split(', ') : []
+    }
+  } catch (error) {
+    console.error('Error fetching room:', error)
     throw new Error(`Habitación con ID ${id} no encontrada`)
   }
-
-  return room
 }
 
 export async function getAvailableRooms(checkIn?: string, checkOut?: string, guests?: number): Promise<Room[]> {
-  // En una aplicación real, esto verificaría la disponibilidad en la base de datos
-  // Para este ejemplo, filtramos las habitaciones marcadas como disponibles
-  let availableRooms = rooms.filter((room) => room.isAvailable)
+  try {
+    // Usar el endpoint de disponibilidad del backend
+    let url = `${API_BASE_URL}/rooms/availability`
+    const params = new URLSearchParams()
+    
+    if (checkIn) params.append('fecha_inicio', checkIn)
+    if (checkOut) params.append('fecha_fin', checkOut)
+    if (guests) params.append('huespedes', guests.toString())
+    
+    if (params.toString()) url += `?${params.toString()}`
 
-  // Si se especifica el número de huéspedes, filtrar por capacidad
-  if (guests) {
-    availableRooms = availableRooms.filter((room) => room.capacity >= guests)
+    const response = await fetch(url)
+    const data = await response.json()
+
+    return data.available_rooms.map((room: any) => ({
+      id: room.id.toString(),
+      name: `Habitación ${room.numero}`,
+      type: room.tipo,
+      price: parseFloat(room.precio),
+      capacity: room.capacidad || 2,
+      description: room.descripcion || '',
+      isAvailable: true, // Todas las de este endpoint están disponibles
+      image: '/room-placeholder.jpg',
+      amenities: room.servicios_incluidos ? room.servicios_incluidos.split(', ') : []
+    }))
+  } catch (error) {
+    console.error('Error fetching available rooms:', error)
+    return []
   }
-
-  return availableRooms
 }

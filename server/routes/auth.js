@@ -1,11 +1,11 @@
 import express from "express"
 import { register, login, logout, refreshToken, verifyToken, changePassword } from "../controllers/authController.js"
 import { authenticateToken } from "../middleware/auth.js"
-import { validateLogin, validateRegister } from "../middleware/validation.js"
+import { validateLogin, validateRegister } from "../middleware/validation.js" // ✅ YA CORREGIDAS
 
 const router = express.Router()
 
-// Rutas públicas
+// Rutas públicas - CON validación corregida
 router.post("/register", validateRegister, register)
 router.post("/login", validateLogin, login)
 router.post("/refresh-token", refreshToken)

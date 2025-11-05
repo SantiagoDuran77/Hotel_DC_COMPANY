@@ -1,7 +1,5 @@
 "use client"
 
-import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -9,8 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Eye, EyeOff, User, Shield, UserCheck, Building } from "lucide-react"
-import * as authUtils from "@/lib/auth"
+import { Eye, EyeOff, Shield, Building, UserCheck, User } from "lucide-react"
+import { authUtils } from "@/lib/utils/authUtils"
 
 export default function LoginForm() {
   const [email, setEmail] = useState("")
@@ -26,7 +24,7 @@ export default function LoginForm() {
     setIsLoading(true)
 
     try {
-      const user = authUtils.login(email, password)
+      const user = await authUtils.login(email, password)
 
       if (user) {
         const redirectPath = authUtils.getDashboardRoute(user)
@@ -34,8 +32,8 @@ export default function LoginForm() {
       } else {
         setError("Credenciales incorrectas. Verifica tu email y contraseña.")
       }
-    } catch (err) {
-      setError("Error al iniciar sesión. Inténtalo de nuevo.")
+    } catch (err: any) {
+      setError(err.message || "Error al iniciar sesión. Inténtalo de nuevo.")
     } finally {
       setIsLoading(false)
     }
@@ -43,37 +41,42 @@ export default function LoginForm() {
 
   const quickLogin = (email: string, role: string) => {
     setEmail(email)
-    setPassword("123456")
+    // Para usuarios existentes, usar solo primeros 4 caracteres
+    if (email.includes('hoteldc.com')) {
+      setPassword("7777") // Para empleados
+    } else {
+      setPassword("1234") // Para clientes
+    }
   }
 
   const roleAccounts = [
     {
       role: "Administrador",
-      email: "admin@hoteldc.com",
+      email: "carlos.ramirez@hoteldc.com",
       icon: Shield,
       color: "text-red-600",
       description: "Acceso completo al sistema",
     },
     {
-      role: "Recepción",
-      email: "recepcion@hoteldc.com",
+      role: "Recepción", 
+      email: "laura.martinez@hoteldc.com",
       icon: Building,
       color: "text-blue-600",
       description: "Gestión de reservas y check-in/out",
     },
     {
-      role: "Empleado",
-      email: "spa@hoteldc.com",
+      role: "Limpieza",
+      email: "sofia.moreno@hoteldc.com",
       icon: UserCheck,
       color: "text-green-600",
-      description: "Servicios y tareas departamentales",
+      description: "Servicios y mantenimiento",
     },
     {
-      role: "Cliente",
-      email: "cliente1@ejemplo.com",
+      role: "Cliente Ejemplo",
+      email: "juanperez@mail.com",
       icon: User,
       color: "text-purple-600",
-      description: "Reservas y servicios personales",
+      description: "Cliente frecuente del hotel",
     },
   ]
 
@@ -119,7 +122,7 @@ export default function LoginForm() {
                       required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Tu contraseña"
+                      placeholder="Primeros 4 caracteres de tu contraseña"
                     />
                     <Button
                       type="button"
@@ -150,7 +153,7 @@ export default function LoginForm() {
           <Card>
             <CardHeader>
               <CardTitle>Acceso Rápido</CardTitle>
-              <CardDescription>Selecciona un tipo de usuario para acceder rápidamente</CardDescription>
+              <CardDescription>Selecciona un usuario existente para acceder rápidamente</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
@@ -176,9 +179,21 @@ export default function LoginForm() {
                 })}
               </div>
 
-              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-600 text-center">
-                  <strong>Contraseña universal:</strong> 123456
+              <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800 text-center">
+                  <strong>Importante:</strong> Usa solo los <strong>primeros 4 caracteres</strong> de tu contraseña
+                </p>
+                <p className="text-xs text-yellow-600 text-center mt-1">
+                  Ejemplo: Si tu contraseña es "123456", usa "1234"
+                </p>
+              </div>
+
+              <div className="mt-4 text-center">
+                <p className="text-xs text-gray-500">
+                  ¿No tienes cuenta?{" "}
+                  <a href="/auth/register" className="text-primary hover:underline">
+                    Regístrate aquí
+                  </a>
                 </p>
               </div>
             </CardContent>

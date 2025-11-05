@@ -1,94 +1,90 @@
 import bcrypt from "bcryptjs"
-import jwt from "jsonwebtoken" // Import jwt to fix the undeclared variable error
-import { executeQuery, executeTransaction } from "../config/database.js"
-import { generateTokens } from "../middleware/auth.js"
+import jwt from "jsonwebtoken"
+import { executeQuery } from "../config/database.js"
 import { asyncHandler } from "../middleware/errorHandler.js"
 
-// Registro de usuario
+// Generar tokens JWT
+const generateTokens = (userId, email, role) => {
+  const accessToken = jwt.sign(
+    { userId, email, role }, 
+    process.env.JWT_SECRET, 
+    { expiresIn: '24h' }
+  )
+  
+  const refreshToken = jwt.sign(
+    { userId, email, role },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
+  )
+
+  return { accessToken, refreshToken }
+}
+
+// Registro de usuario - ADAPTADO A TU ESQUEMA
 export const register = asyncHandler(async (req, res) => {
+  console.log('📝 Register body:', req.body)
+  
   const {
-    nombre_usuario,
-    apellido_usuario,
-    correo_usuario,
-    telefono_usuario,
-    direccion_usuario,
-    contrasena_usuario,
-    tipo_usuario = "cliente",
-    documento_identidad,
-    fecha_nacimiento,
-    nacionalidad,
-    preferencias,
+    nombre,
+    email,
+    password,
+    telefono,
+    direccion,
+    nacionalidad
   } = req.body
 
+  // Verificar campos requeridos básicos
+  if (!nombre || !email || !password) {
+    return res.status(400).json({
+      error: "Nombre, email y contraseña son requeridos",
+      code: "MISSING_FIELDS",
+    })
+  }
+  
+  // ... el resto del código
   // Verificar si el usuario ya existe
   const existingUser = await executeQuery(
-    "SELECT id_usuario FROM usuario WHERE correo_usuario = ? OR nombre_usuario = ?",
-    [correo_usuario, nombre_usuario],
+    "SELECT id_usuario FROM usuario WHERE correo_usuario = ?",
+    [email]
   )
 
   if (existingUser.length > 0) {
     return res.status(409).json({
-      error: "El usuario ya existe con ese email o nombre de usuario",
+      error: "Ya existe un usuario con ese email",
       code: "USER_EXISTS",
     })
   }
 
   // Encriptar contraseña
-  const hashedPassword = await bcrypt.hash(contrasena_usuario, Number.parseInt(process.env.BCRYPT_ROUNDS))
+  const hashedPassword = await bcrypt.hash(password, 10)
 
-  // Crear transacción para insertar usuario y cliente
-  const queries = [
-    {
-      query: `INSERT INTO usuario (nombre_usuario, apellido_usuario, correo_usuario, telefono_usuario, 
-               direccion_usuario, contrasena_usuario, tipo_usuario) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      params: [
-        nombre_usuario,
-        apellido_usuario,
-        correo_usuario,
-        telefono_usuario,
-        direccion_usuario,
-        hashedPassword,
-        tipo_usuario,
-      ],
-    },
-  ]
-
-  const results = await executeTransaction(queries)
-  const userId = results[0].insertId
-
-  // Si es cliente, insertar en tabla cliente
-  if (tipo_usuario === "cliente" && documento_identidad) {
-    await executeQuery(
-      `INSERT INTO cliente (id_usuario, documento_identidad, fecha_nacimiento, 
-       nacionalidad, preferencias) VALUES (?, ?, ?, ?, ?)`,
-      [userId, documento_identidad, fecha_nacimiento, nacionalidad, preferencias],
-    )
-  }
-
-  // Generar tokens
-  const { accessToken, refreshToken } = generateTokens(userId)
-
-  // Obtener datos completos del usuario
-  const userData = await executeQuery(
-    `SELECT u.id_usuario, u.nombre_usuario, u.apellido_usuario, u.correo_usuario, 
-     u.telefono_usuario, u.tipo_usuario, c.documento_identidad, c.preferencias
-     FROM usuario u LEFT JOIN cliente c ON u.id_usuario = c.id_usuario 
-     WHERE u.id_usuario = ?`,
-    [userId],
+  // Insertar en cliente (tu esquema real)
+  const clienteResult = await executeQuery(
+    `INSERT INTO cliente (nombre_cliente, apellido_cliente, correo_cliente, telefono_cliente, direccion_cliente, nacionalidad) 
+     VALUES (?, '', ?, ?, ?, ?)`,
+    [nombre, email, telefono, direccion, nacionalidad]
   )
 
-  const user = userData[0]
+  const clienteId = clienteResult.insertId
+
+  // Insertar en usuario (tu esquema real)
+  await executeQuery(
+    `INSERT INTO usuario (correo_usuario, usuario_acceso, contraseña_usuario, estado_usuario, fecha_registro) 
+     VALUES (?, 'Cliente', ?, 'Activo', CURDATE())`,
+    [email, hashedPassword.substring(0, 4)] // Tu esquema usa contraseña de 4 chars
+  )
+
+  // Generar tokens
+  const { accessToken, refreshToken } = generateTokens(clienteId, email, 'Cliente')
 
   res.status(201).json({
     message: "Usuario registrado exitosamente",
     user: {
-      id: user.id_usuario,
-      name: `${user.nombre_usuario} ${user.apellido_usuario}`,
-      email: user.correo_usuario,
-      role: user.tipo_usuario,
-      phone: user.telefono_usuario,
-      documento_identidad: user.documento_identidad,
-      preferencias: user.preferencias,
+      id: clienteId,
+      name: nombre,
+      email: email,
+      role: 'Cliente',
+      phone: telefono
     },
     tokens: {
       accessToken,
@@ -97,18 +93,17 @@ export const register = asyncHandler(async (req, res) => {
   })
 })
 
-// Inicio de sesión
+// Inicio de sesión - ADAPTADO A TU ESQUEMA
 export const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body
 
-  // Buscar usuario por email
+  // Buscar usuario en tu esquema real
   const users = await executeQuery(
-    `SELECT u.*, c.documento_identidad, c.preferencias, e.cargo, e.departamento
+    `SELECT u.*, c.id_cliente, c.nombre_cliente, c.apellido_cliente, c.telefono_cliente
      FROM usuario u 
-     LEFT JOIN cliente c ON u.id_usuario = c.id_usuario 
-     LEFT JOIN empleado e ON u.id_usuario = e.id_usuario
-     WHERE u.correo_usuario = ?`,
-    [email],
+     LEFT JOIN cliente c ON u.correo_usuario = c.correo_cliente
+     WHERE u.correo_usuario = ? AND u.estado_usuario = 'Activo'`,
+    [email]
   )
 
   if (!users.length) {
@@ -120,8 +115,8 @@ export const login = asyncHandler(async (req, res) => {
 
   const user = users[0]
 
-  // Verificar contraseña
-  const isValidPassword = await bcrypt.compare(password, user.contrasena_usuario)
+  // Verificar contraseña (adaptado a tu esquema de 4 caracteres)
+  const isValidPassword = password.substring(0, 4) === user.contraseña_usuario
   if (!isValidPassword) {
     return res.status(401).json({
       error: "Credenciales inválidas",
@@ -129,24 +124,20 @@ export const login = asyncHandler(async (req, res) => {
     })
   }
 
-  // Generar tokens
-  const { accessToken, refreshToken } = generateTokens(user.id_usuario)
+  // Determinar rol basado en usuario_acceso
+  const role = user.usuario_acceso === 'Empleado' ? 'Empleado' : 'Cliente'
 
-  // Actualizar último acceso
-  await executeQuery("UPDATE usuario SET updated_at = CURRENT_TIMESTAMP WHERE id_usuario = ?", [user.id_usuario])
+  // Generar tokens
+  const { accessToken, refreshToken } = generateTokens(user.id_cliente || user.id_usuario, email, role)
 
   res.json({
     message: "Inicio de sesión exitoso",
     user: {
-      id: user.id_usuario,
-      name: `${user.nombre_usuario} ${user.apellido_usuario}`,
+      id: user.id_cliente || user.id_usuario,
+      name: user.nombre_cliente || 'Usuario',
       email: user.correo_usuario,
-      role: user.tipo_usuario,
-      phone: user.telefono_usuario,
-      documento_identidad: user.documento_identidad,
-      preferencias: user.preferencias,
-      department: user.departamento,
-      cargo: user.cargo,
+      role: role,
+      phone: user.telefono_cliente
     },
     tokens: {
       accessToken,
@@ -157,7 +148,6 @@ export const login = asyncHandler(async (req, res) => {
 
 // Cerrar sesión
 export const logout = asyncHandler(async (req, res) => {
-  // En una implementación completa, aquí invalidarías el token en una blacklist
   res.json({
     message: "Sesión cerrada exitosamente",
   })
@@ -175,8 +165,12 @@ export const refreshToken = asyncHandler(async (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET)
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(decoded.userId)
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET)
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(
+      decoded.userId, 
+      decoded.email, 
+      decoded.role
+    )
 
     res.json({
       tokens: {
@@ -205,8 +199,11 @@ export const changePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body
   const userId = req.user.id
 
-  // Obtener contraseña actual
-  const users = await executeQuery("SELECT contrasena_usuario FROM usuario WHERE id_usuario = ?", [userId])
+  // Obtener usuario actual
+  const users = await executeQuery(
+    "SELECT contraseña_usuario FROM usuario WHERE correo_usuario = ?",
+    [req.user.email]
+  )
 
   if (!users.length) {
     return res.status(404).json({
@@ -216,7 +213,7 @@ export const changePassword = asyncHandler(async (req, res) => {
   }
 
   // Verificar contraseña actual
-  const isValidPassword = await bcrypt.compare(currentPassword, users[0].contrasena_usuario)
+  const isValidPassword = currentPassword.substring(0, 4) === users[0].contraseña_usuario
   if (!isValidPassword) {
     return res.status(400).json({
       error: "Contraseña actual incorrecta",
@@ -224,14 +221,11 @@ export const changePassword = asyncHandler(async (req, res) => {
     })
   }
 
-  // Encriptar nueva contraseña
-  const hashedNewPassword = await bcrypt.hash(newPassword, Number.parseInt(process.env.BCRYPT_ROUNDS))
-
-  // Actualizar contraseña
-  await executeQuery("UPDATE usuario SET contrasena_usuario = ?, updated_at = CURRENT_TIMESTAMP WHERE id_usuario = ?", [
-    hashedNewPassword,
-    userId,
-  ])
+  // Actualizar contraseña (primeros 4 caracteres)
+  await executeQuery(
+    "UPDATE usuario SET contraseña_usuario = ? WHERE correo_usuario = ?",
+    [newPassword.substring(0, 4), req.user.email]
+  )
 
   res.json({
     message: "Contraseña actualizada exitosamente",

@@ -64,10 +64,10 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }))
 // Rutas públicas
 app.use("/api/auth", authRoutes)
 
-// Middleware de autenticación para rutas protegidas
-app.use("/api", authenticateToken)
+// 🔓 ACCESO TEMPORAL SIN AUTENTICACIÓN - COMENTA LA SIGUIENTE LÍNEA:
+// app.use("/api", authenticateToken)
 
-// Rutas protegidas
+// 🎯 RUTAS PROTEGidas PERO TEMPORALMENTE SIN AUTENTICACIÓN
 app.use("/api/users", userRoutes)
 app.use("/api/rooms", roomRoutes)
 app.use("/api/reservations", reservationRoutes)
@@ -101,6 +101,7 @@ app.listen(PORT, () => {
   console.log(`🚀 Servidor ejecutándose en puerto ${PORT}`)
   console.log(`🌍 Entorno: ${process.env.NODE_ENV || "development"}`)
   console.log(`📊 API disponible en: http://localhost:${PORT}/api`)
+  console.log(`🔓 MODO: Autenticación temporalmente desactivada`)
 })
 
 // Manejo de errores no capturados

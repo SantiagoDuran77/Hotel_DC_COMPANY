@@ -8,14 +8,13 @@ export const getRooms = asyncHandler(async (req, res) => {
     limit = 10,
     tipo = "",
     estado = "",
-    disponible = "",
     precio_min = 0,
     precio_max = 999999999,
   } = req.query
 
   const offset = (page - 1) * limit
 
-  const whereConditions = ["h.estado = 1"]
+  const whereConditions = ["1=1"] // Siempre verdadero para simplificar
   const params = []
 
   if (tipo) {
@@ -28,19 +27,15 @@ export const getRooms = asyncHandler(async (req, res) => {
     params.push(estado)
   }
 
-  if (disponible === "true") {
-    whereConditions.push('h.estado_habitacion = "disponible"')
-  }
-
-  whereConditions.push("h.costo_habitacion BETWEEN ? AND ?")
+  whereConditions.push("h.precio BETWEEN ? AND ?")
   params.push(precio_min, precio_max)
 
   const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(" AND ")}` : ""
 
-  // Consulta principal con detalles
+  // Consulta principal con detalles - CORREGIDA para tu esquema
   const query = `
-    SELECT h.*, dh.descripcion_corta, dh.descripcion_larga, dh.comodidades, dh.imagenes
-    FROM habitacion h
+    SELECT h.*, dh.descripcion, dh.capacidad, dh.servicios_incluidos
+    FROM Habitacion h
     LEFT JOIN detalles_habitacion dh ON h.id_habitacion = dh.id_habitacion
     ${whereClause}
     ORDER BY h.numero_habitacion
@@ -54,7 +49,7 @@ export const getRooms = asyncHandler(async (req, res) => {
   // Contar total para paginación
   const countQuery = `
     SELECT COUNT(*) as total
-    FROM habitacion h
+    FROM Habitacion h
     ${whereClause}
   `
 
@@ -68,13 +63,10 @@ export const getRooms = asyncHandler(async (req, res) => {
       numero: room.numero_habitacion,
       tipo: room.tipo_habitacion,
       estado: room.estado_habitacion,
-      precio: room.costo_habitacion,
-      capacidad: room.capacidad_personas,
-      amenidades: room.amenidades,
-      descripcion_corta: room.descripcion_corta,
-      descripcion_larga: room.descripcion_larga,
-      comodidades: room.comodidades,
-      imagenes: room.imagenes ? room.imagenes.split(",") : [],
+      precio: room.precio,
+      descripcion: room.descripcion,
+      capacidad: room.capacidad,
+      servicios_incluidos: room.servicios_incluidos,
     })),
     pagination: {
       page: Number.parseInt(page),
@@ -91,10 +83,10 @@ export const getRoomById = asyncHandler(async (req, res) => {
 
   const rooms = await executeQuery(
     `
-    SELECT h.*, dh.descripcion_corta, dh.descripcion_larga, dh.comodidades, dh.imagenes
-    FROM habitacion h
+    SELECT h.*, dh.descripcion, dh.capacidad, dh.servicios_incluidos
+    FROM Habitacion h
     LEFT JOIN detalles_habitacion dh ON h.id_habitacion = dh.id_habitacion
-    WHERE h.id_habitacion = ? AND h.estado = 1
+    WHERE h.id_habitacion = ?
   `,
     [id],
   )
@@ -113,13 +105,10 @@ export const getRoomById = asyncHandler(async (req, res) => {
     numero: room.numero_habitacion,
     tipo: room.tipo_habitacion,
     estado: room.estado_habitacion,
-    precio: room.costo_habitacion,
-    capacidad: room.capacidad_personas,
-    amenidades: room.amenidades,
-    descripcion_corta: room.descripcion_corta,
-    descripcion_larga: room.descripcion_larga,
-    comodidades: room.comodidades,
-    imagenes: room.imagenes ? room.imagenes.split(",") : [],
+    precio: room.precio,
+    descripcion: room.descripcion,
+    capacidad: room.capacidad,
+    servicios_incluidos: room.servicios_incluidos,
   })
 })
 
@@ -128,16 +117,14 @@ export const createRoom = asyncHandler(async (req, res) => {
   const {
     numero_habitacion,
     tipo_habitacion,
-    costo_habitacion,
-    capacidad_personas,
-    amenidades,
-    descripcion_corta,
-    descripcion_larga,
-    comodidades,
+    precio,
+    descripcion,
+    capacidad,
+    servicios_incluidos,
   } = req.body
 
   // Verificar que no existe habitación con ese número
-  const existingRoom = await executeQuery("SELECT id_habitacion FROM habitacion WHERE numero_habitacion = ?", [
+  const existingRoom = await executeQuery("SELECT id_habitacion FROM Habitacion WHERE numero_habitacion = ?", [
     numero_habitacion,
   ])
 
@@ -151,24 +138,22 @@ export const createRoom = asyncHandler(async (req, res) => {
   // Insertar habitación
   const roomResult = await executeQuery(
     `
-    INSERT INTO habitacion (numero_habitacion, tipo_habitacion, costo_habitacion, 
-                           capacidad_personas, amenidades)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO Habitacion (numero_habitacion, tipo_habitacion, precio, estado_habitacion)
+    VALUES (?, ?, ?, 'Disponible')
   `,
-    [numero_habitacion, tipo_habitacion, costo_habitacion, capacidad_personas, amenidades],
+    [numero_habitacion, tipo_habitacion, precio],
   )
 
   const roomId = roomResult.insertId
 
   // Insertar detalles si se proporcionan
-  if (descripcion_corta || descripcion_larga || comodidades) {
+  if (descripcion || capacidad || servicios_incluidos) {
     await executeQuery(
       `
-      INSERT INTO detalles_habitacion (id_habitacion, descripcion_corta, descripcion_larga, 
-                                     precio_base, comodidades)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO detalles_habitacion (id_habitacion, descripcion, capacidad, servicios_incluidos)
+      VALUES (?, ?, ?, ?)
     `,
-      [roomId, descripcion_corta, descripcion_larga, costo_habitacion, comodidades],
+      [roomId, descripcion, capacidad, servicios_incluidos],
     )
   }
 
@@ -181,11 +166,10 @@ export const createRoom = asyncHandler(async (req, res) => {
 // Actualizar habitación (solo admin)
 export const updateRoom = asyncHandler(async (req, res) => {
   const { id } = req.params
-  const { numero_habitacion, tipo_habitacion, estado_habitacion, costo_habitacion, capacidad_personas, amenidades } =
-    req.body
+  const { numero_habitacion, tipo_habitacion, estado_habitacion, precio } = req.body
 
   // Verificar que la habitación existe
-  const existingRoom = await executeQuery("SELECT id_habitacion FROM habitacion WHERE id_habitacion = ?", [id])
+  const existingRoom = await executeQuery("SELECT id_habitacion FROM Habitacion WHERE id_habitacion = ?", [id])
 
   if (!existingRoom.length) {
     return res.status(404).json({
@@ -197,13 +181,11 @@ export const updateRoom = asyncHandler(async (req, res) => {
   // Actualizar habitación
   await executeQuery(
     `
-    UPDATE habitacion 
-    SET numero_habitacion = ?, tipo_habitacion = ?, estado_habitacion = ?,
-        costo_habitacion = ?, capacidad_personas = ?, amenidades = ?,
-        updated_at = CURRENT_TIMESTAMP
+    UPDATE Habitacion 
+    SET numero_habitacion = ?, tipo_habitacion = ?, estado_habitacion = ?, precio = ?
     WHERE id_habitacion = ?
   `,
-    [numero_habitacion, tipo_habitacion, estado_habitacion, costo_habitacion, capacidad_personas, amenidades, id],
+    [numero_habitacion, tipo_habitacion, estado_habitacion, precio, id],
   )
 
   res.json({
@@ -211,12 +193,12 @@ export const updateRoom = asyncHandler(async (req, res) => {
   })
 })
 
-// Eliminar habitación (solo admin)
+// Eliminar habitación (solo admin) - Cambiar estado a Mantenimiento
 export const deleteRoom = asyncHandler(async (req, res) => {
   const { id } = req.params
 
   // Verificar que la habitación existe
-  const existingRoom = await executeQuery("SELECT id_habitacion FROM habitacion WHERE id_habitacion = ?", [id])
+  const existingRoom = await executeQuery("SELECT id_habitacion FROM Habitacion WHERE id_habitacion = ?", [id])
 
   if (!existingRoom.length) {
     return res.status(404).json({
@@ -229,9 +211,8 @@ export const deleteRoom = asyncHandler(async (req, res) => {
   const activeReservations = await executeQuery(
     `
     SELECT r.id_reserva 
-    FROM reserva r
-    JOIN detalle_reserva dr ON r.id_reserva = dr.id_reserva
-    WHERE dr.id_habitacion = ? AND r.estado_reserva IN ('pendiente', 'confirmada')
+    FROM Reserva r
+    WHERE r.id_habitacion = ? AND r.estado_reserva IN ('Pendiente', 'Confirmada')
   `,
     [id],
   )
@@ -243,21 +224,21 @@ export const deleteRoom = asyncHandler(async (req, res) => {
     })
   }
 
-  // Soft delete
-  await executeQuery("UPDATE habitacion SET estado = 0, updated_at = CURRENT_TIMESTAMP WHERE id_habitacion = ?", [id])
+  // Cambiar estado a Mantenimiento en lugar de eliminar
+  await executeQuery("UPDATE Habitacion SET estado_habitacion = 'Mantenimiento' WHERE id_habitacion = ?", [id])
 
   res.json({
-    message: "Habitación eliminada exitosamente",
+    message: "Habitación puesta en mantenimiento exitosamente",
   })
 })
 
 // Verificar disponibilidad
 export const checkAvailability = asyncHandler(async (req, res) => {
-  const { fecha_llegada, fecha_salida, huespedes = 1 } = req.query
+  const { fecha_inicio, fecha_fin, tipo_habitacion } = req.query
 
-  if (!fecha_llegada || !fecha_salida) {
+  if (!fecha_inicio || !fecha_fin) {
     return res.status(400).json({
-      error: "Fechas de llegada y salida son requeridas",
+      error: "Fechas de inicio y fin son requeridas",
       code: "MISSING_DATES",
     })
   }
@@ -265,26 +246,26 @@ export const checkAvailability = asyncHandler(async (req, res) => {
   // Habitaciones disponibles (no ocupadas en las fechas solicitadas)
   const availableRooms = await executeQuery(
     `
-    SELECT h.*, dh.descripcion_corta, dh.comodidades
-    FROM habitacion h
+    SELECT h.*, dh.descripcion, dh.capacidad, dh.servicios_incluidos
+    FROM Habitacion h
     LEFT JOIN detalles_habitacion dh ON h.id_habitacion = dh.id_habitacion
-    WHERE h.estado = 1 
-    AND h.estado_habitacion = 'disponible'
-    AND h.capacidad_personas >= ?
+    WHERE h.estado_habitacion = 'Disponible'
+    ${tipo_habitacion ? "AND h.tipo_habitacion = ?" : ""}
     AND h.id_habitacion NOT IN (
-      SELECT DISTINCT dr.id_habitacion
-      FROM detalle_reserva dr
-      JOIN reserva r ON dr.id_reserva = r.id_reserva
-      WHERE r.estado_reserva IN ('confirmada', 'pendiente')
+      SELECT DISTINCT r.id_habitacion
+      FROM Reserva r
+      WHERE r.estado_reserva IN ('Confirmada', 'Pendiente')
       AND (
-        (r.fecha_llegada <= ? AND r.fecha_salida > ?) OR
-        (r.fecha_llegada < ? AND r.fecha_salida >= ?) OR
-        (r.fecha_llegada >= ? AND r.fecha_salida <= ?)
+        (r.fecha_inicio <= ? AND r.fecha_fin > ?) OR
+        (r.fecha_inicio < ? AND r.fecha_fin >= ?) OR
+        (r.fecha_inicio >= ? AND r.fecha_fin <= ?)
       )
     )
-    ORDER BY h.costo_habitacion
+    ORDER BY h.precio
   `,
-    [huespedes, fecha_llegada, fecha_llegada, fecha_salida, fecha_salida, fecha_llegada, fecha_salida],
+    tipo_habitacion 
+      ? [tipo_habitacion, fecha_fin, fecha_inicio, fecha_fin, fecha_inicio, fecha_inicio, fecha_fin]
+      : [fecha_fin, fecha_inicio, fecha_fin, fecha_inicio, fecha_inicio, fecha_fin]
   )
 
   res.json({
@@ -292,10 +273,73 @@ export const checkAvailability = asyncHandler(async (req, res) => {
       id: room.id_habitacion,
       numero: room.numero_habitacion,
       tipo: room.tipo_habitacion,
-      precio: room.costo_habitacion,
-      capacidad: room.capacidad_personas,
-      descripcion: room.descripcion_corta,
-      comodidades: room.comodidades,
+      precio: room.precio,
+      estado: room.estado_habitacion,
+      descripcion: room.descripcion,
+      capacidad: room.capacidad,
+      servicios_incluidos: room.servicios_incluidos,
+    })),
+    total: availableRooms.length,
+  })
+})
+
+// Endpoint específico para disponibilidad
+export const getRoomAvailability = asyncHandler(async (req, res) => {
+  const { fecha_inicio, fecha_fin, tipo_habitacion, huespedes } = req.query
+
+  let whereConditions = ["h.estado_habitacion = 'Disponible'"]
+  const params = []
+
+  if (tipo_habitacion) {
+    whereConditions.push("h.tipo_habitacion = ?")
+    params.push(tipo_habitacion)
+  }
+
+  if (huespedes) {
+    whereConditions.push("dh.capacidad >= ?")
+    params.push(Number.parseInt(huespedes))
+  }
+
+  // Si hay fechas, verificar conflictos con reservas
+  if (fecha_inicio && fecha_fin) {
+    whereConditions.push(`
+      h.id_habitacion NOT IN (
+        SELECT DISTINCT r.id_habitacion
+        FROM Reserva r
+        WHERE r.estado_reserva IN ('Confirmada', 'Pendiente')
+        AND (
+          (r.fecha_inicio <= ? AND r.fecha_fin > ?) OR
+          (r.fecha_inicio < ? AND r.fecha_fin >= ?) OR
+          (r.fecha_inicio >= ? AND r.fecha_fin <= ?)
+        )
+      )
+    `)
+    params.push(fecha_fin, fecha_inicio, fecha_fin, fecha_inicio, fecha_inicio, fecha_fin)
+  }
+
+  const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(" AND ")}` : ""
+
+  const availableRooms = await executeQuery(
+    `
+    SELECT h.*, dh.descripcion, dh.capacidad, dh.servicios_incluidos
+    FROM Habitacion h
+    LEFT JOIN detalles_habitacion dh ON h.id_habitacion = dh.id_habitacion
+    ${whereClause}
+    ORDER BY h.precio
+  `,
+    params
+  )
+
+  res.json({
+    available_rooms: availableRooms.map((room) => ({
+      id: room.id_habitacion,
+      numero: room.numero_habitacion,
+      tipo: room.tipo_habitacion,
+      precio: room.precio,
+      estado: room.estado_habitacion,
+      descripcion: room.descripcion,
+      capacidad: room.capacidad,
+      servicios_incluidos: room.servicios_incluidos,
     })),
     total: availableRooms.length,
   })
