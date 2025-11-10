@@ -1,17 +1,18 @@
+// components/booking-steps.tsx
 "use client"
 
 import type React from "react"
 
 import { useState, useEffect, useCallback } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
-import { Check, Calendar, Users, Search, Filter, AlertCircle, CreditCard, Shield, Info } from "lucide-react"
+import { Check, Calendar, Users, Search, Filter, AlertCircle, CreditCard, Shield, Info, Building, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { format, addDays, differenceInDays, isValid } from "date-fns"
 import { es } from "date-fns/locale"
-import { getRooms } from "@/lib/api"
+import { getRooms, createReservation, getCurrentUser } from "@/lib/api"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { Badge } from "@/components/ui/badge"
@@ -19,7 +20,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Image from "next/image"
-import ImageCarousel from "@/components/image-carousel"
 import type { Room } from "@/lib/types"
 import RoomSelectorCinema from "./room-selector-cinema"
 
@@ -37,13 +37,13 @@ export default function BookingSteps() {
   const [searchTerm, setSearchTerm] = useState("")
   const [showFilters, setShowFilters] = useState(false)
   const [minPrice, setMinPrice] = useState(0)
-  const [maxPrice, setMaxPrice] = useState(1000)
+  const [maxPrice, setMaxPrice] = useState(500000)
   const [capacity, setCapacity] = useState(1)
   const [error, setError] = useState<string | null>(null)
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [promoCode, setPromoCode] = useState("")
   const [promoApplied, setPromoApplied] = useState(false)
-  const [paymentTab, setPaymentTab] = useState("credit-card")
+  const [paymentTab, setPaymentTab] = useState("hotel")
   const [viewMode, setViewMode] = useState<"list" | "cinema">("list")
 
   // Form data
@@ -64,7 +64,7 @@ export default function BookingSteps() {
     email: "",
     phone: "",
     specialRequests: "",
-    paymentMethod: "credit-card",
+    paymentMethod: "hotel",
     cardNumber: "",
     cardName: "",
     cardExpiry: "",
@@ -118,17 +118,54 @@ export default function BookingSteps() {
     }
   }, [searchParams])
 
-  // Cargar habitaciones solo una vez
+  // Cargar todas las habitaciones al inicio
   useEffect(() => {
     async function loadRooms() {
       try {
         setIsLoading(true)
         setError(null)
+        console.log('🔄 Loading all rooms for booking...')
         const rooms = await getRooms()
-        setAvailableRooms(rooms)
-        setFilteredRooms(rooms) // Inicializar filteredRooms con todas las habitaciones
+        console.log('✅ All rooms loaded from API:', rooms)
+        
+        // Validar y normalizar las habitaciones
+        const validatedRooms = rooms.map((room: any) => {
+          // Asegurar que todas las propiedades necesarias existan
+          const roomData = {
+            id: room.id?.toString() || room.id_habitacion?.toString() || Math.random().toString(),
+            name: room.name || `Habitación ${room.number || room.numero_habitacion}`,
+            description: room.description || room.descripcion || 'Sin descripción disponible',
+            price: Number(room.price) || Number(room.precio) || 0,
+            capacity: Number(room.capacity) || Number(room.capacidad) || 1,
+            isAvailable: room.isAvailable !== undefined ? room.isAvailable : (room.estado === 'Disponible' || room.estado_habitacion === 'Disponible'),
+            amenities: Array.isArray(room.amenities) ? room.amenities : 
+                      (room.servicios_incluidos ? 
+                        (typeof room.servicios_incluidos === 'string' ? 
+                          room.servicios_incluidos.split(',') : 
+                          room.servicios_incluidos) 
+                        : []),
+            images: Array.isArray(room.images) ? room.images : [],
+            number: room.number?.toString() || room.numero_habitacion?.toString(),
+            tipo: room.tipo || room.tipo_habitacion,
+            estado: room.estado || room.estado_habitacion
+          }
+
+          console.log('📋 Processed room:', roomData)
+          return roomData
+        })
+
+        // Calcular precio máximo basado en las habitaciones reales
+        const calculatedMaxPrice = validatedRooms.length > 0 
+          ? Math.max(...validatedRooms.map(room => room.price || 0)) * 1.1
+          : 500000
+        
+        setMaxPrice(calculatedMaxPrice)
+        setAvailableRooms(validatedRooms)
+        setFilteredRooms(validatedRooms)
+        
+        console.log('✅ Final validated rooms:', validatedRooms)
       } catch (error) {
-        console.error("Error fetching rooms:", error)
+        console.error("❌ Error fetching rooms:", error)
         setError("No se pudieron cargar las habitaciones. Por favor, inténtelo de nuevo más tarde.")
       } finally {
         setIsLoading(false)
@@ -137,34 +174,6 @@ export default function BookingSteps() {
 
     loadRooms()
   }, [])
-
-  // Función para filtrar habitaciones - separada del useEffect
-  const filterRooms = useCallback(() => {
-    if (availableRooms.length === 0) return
-
-    try {
-      let result = [...availableRooms]
-
-      // Aplicar filtro de búsqueda
-      if (searchTerm) {
-        result = result.filter(
-          (room) =>
-            room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            room.description.toLowerCase().includes(searchTerm.toLowerCase()),
-        )
-      }
-
-      // Aplicar filtro de precio
-      result = result.filter((room) => room.price >= minPrice && room.price <= maxPrice)
-
-      // Aplicar filtro de capacidad
-      result = result.filter((room) => room.capacity >= capacity)
-
-      setFilteredRooms(result)
-    } catch (err) {
-      console.error("Error filtering rooms:", err)
-    }
-  }, [availableRooms, searchTerm, minPrice, maxPrice, capacity])
 
   // Aplicar filtros cuando cambien los criterios
   useEffect(() => {
@@ -179,16 +188,21 @@ export default function BookingSteps() {
           result = result.filter(
             (room) =>
               room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              room.description.toLowerCase().includes(searchTerm.toLowerCase()),
+              room.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              (room.tipo && room.tipo.toLowerCase().includes(searchTerm.toLowerCase())),
           )
         }
 
         // Aplicar filtro de precio
-        result = result.filter((room) => room.price >= minPrice && room.price <= maxPrice)
+        result = result.filter((room) => (room.price || 0) >= minPrice && (room.price || 0) <= maxPrice)
 
         // Aplicar filtro de capacidad
         result = result.filter((room) => room.capacity >= capacity)
 
+        console.log(`🔍 Filtered ${result.length} rooms from ${availableRooms.length} total`)
+        console.log(`💰 Price range: $${minPrice} - $${maxPrice}`)
+        console.log(`👥 Capacity: ${capacity}+ guests`)
+        
         setFilteredRooms(result)
       } catch (err) {
         console.error("Error filtering rooms:", err)
@@ -204,28 +218,24 @@ export default function BookingSteps() {
 
     // Validación específica para campos de tarjeta
     if (name === "cardNumber") {
-      // Solo permitir números y espacios, máximo 19 caracteres (16 números + 3 espacios)
       const sanitizedValue = value.replace(/[^\d\s]/g, "").substring(0, 19)
       setFormData((prev) => ({ ...prev, [name]: sanitizedValue }))
       return
     }
 
     if (name === "cardExpiry") {
-      // Formato MM/YY, solo permitir números y /
       const sanitizedValue = value.replace(/[^\d/]/g, "").substring(0, 5)
       setFormData((prev) => ({ ...prev, [name]: sanitizedValue }))
       return
     }
 
     if (name === "cardCvc") {
-      // Solo permitir 3-4 dígitos
       const sanitizedValue = value.replace(/\D/g, "").substring(0, 4)
       setFormData((prev) => ({ ...prev, [name]: sanitizedValue }))
       return
     }
 
     if (name === "phone") {
-      // Solo permitir números, +, espacios y guiones
       const sanitizedValue = value.replace(/[^\d+\s-]/g, "")
       setFormData((prev) => ({ ...prev, [name]: sanitizedValue }))
       return
@@ -238,6 +248,7 @@ export default function BookingSteps() {
     }))
   }, [])
 
+  // Manejar cambio de fechas
   const handleDateChange = useCallback(
     (field: "checkIn" | "checkOut", date: Date | undefined) => {
       if (!date || !isValid(date)) return
@@ -249,7 +260,6 @@ export default function BookingSteps() {
         if (field === "checkIn") {
           newCheckIn = date.toISOString().split("T")[0]
 
-          // Si la fecha de salida es anterior a la nueva fecha de entrada, ajustarla
           if (prev.checkOut) {
             const checkOutDate = new Date(prev.checkOut)
             if (checkOutDate <= date) {
@@ -257,7 +267,6 @@ export default function BookingSteps() {
               newCheckOut = nextDay.toISOString().split("T")[0]
             }
           } else {
-            // Si no hay fecha de salida, establecerla a un día después
             const nextDay = addDays(date, 1)
             newCheckOut = nextDay.toISOString().split("T")[0]
           }
@@ -277,10 +286,10 @@ export default function BookingSteps() {
 
         // Calcular precios
         const basePrice = prev.price
-        const priceWithDiscount = promoApplied ? basePrice * 0.85 : basePrice // 15% de descuento si hay promo
+        const priceWithDiscount = promoApplied ? basePrice * 0.85 : basePrice
         const subtotal = priceWithDiscount * nights
-        const taxes = subtotal * 0.12 // 12% de impuestos
-        const serviceFee = subtotal * 0.05 // 5% de tarifa de servicio
+        const taxes = subtotal * 0.12
+        const serviceFee = subtotal * 0.05
         const total = subtotal + taxes + serviceFee
 
         return {
@@ -301,19 +310,9 @@ export default function BookingSteps() {
   // Función mejorada para seleccionar habitación
   const handleRoomSelect = useCallback(
     (room: Room) => {
-      // Prevent updates if the same room is already selected or if room is not available
       if (formData.roomId === room.id || !room.isAvailable) return
 
       try {
-        // Generate multiple images for the carousel
-        const roomImages = [
-          room.image || "/placeholder.svg?height=400&width=600",
-          "/placeholder.svg?height=400&width=600&text=Vista+1",
-          "/placeholder.svg?height=400&width=600&text=Vista+2",
-          "/placeholder.svg?height=400&width=600&text=Baño",
-        ]
-
-        // Calculate nights and total
         let checkInDate, checkOutDate, nights
 
         if (formData.checkIn && formData.checkOut) {
@@ -323,7 +322,6 @@ export default function BookingSteps() {
           if (isValid(checkInDate) && isValid(checkOutDate)) {
             nights = Math.max(0, differenceInDays(checkOutDate, checkInDate))
           } else {
-            // Si las fechas no son válidas, establecer fechas predeterminadas
             const today = new Date()
             const tomorrow = addDays(today, 1)
 
@@ -332,7 +330,6 @@ export default function BookingSteps() {
             nights = 1
           }
         } else {
-          // Si no hay fechas seleccionadas, establecer fechas predeterminadas
           const today = new Date()
           const tomorrow = addDays(today, 1)
 
@@ -344,21 +341,19 @@ export default function BookingSteps() {
         const checkInStr = checkInDate.toISOString().split("T")[0]
         const checkOutStr = checkOutDate.toISOString().split("T")[0]
 
-        // Calcular precios
-        const basePrice = room.price
-        const priceWithDiscount = promoApplied ? basePrice * 0.85 : basePrice // 15% de descuento si hay promo
+        const basePrice = room.price || 0
+        const priceWithDiscount = promoApplied ? basePrice * 0.85 : basePrice
         const subtotal = priceWithDiscount * nights
-        const taxes = subtotal * 0.12 // 12% de impuestos
-        const serviceFee = subtotal * 0.05 // 5% de tarifa de servicio
+        const taxes = subtotal * 0.12
+        const serviceFee = subtotal * 0.05
         const total = subtotal + taxes + serviceFee
 
-        // Update state with all calculated values
         setFormData((prevData) => ({
           ...prevData,
           roomId: room.id,
           roomName: room.name,
-          roomImage: room.image,
-          price: room.price,
+          roomImage: room.images?.[0] || '',
+          price: basePrice,
           checkIn: checkInStr,
           checkOut: checkOutStr,
           nights: nights,
@@ -367,6 +362,8 @@ export default function BookingSteps() {
           serviceFee: serviceFee,
           total: total,
         }))
+        
+        console.log('✅ Room selected:', room.id, room.name, 'Price:', basePrice)
       } catch (err) {
         console.error("Error selecting room:", err)
       }
@@ -387,13 +384,11 @@ export default function BookingSteps() {
   }, [])
 
   const handleApplyPromo = () => {
-    // Simular validación de código promocional
     if (promoCode.toUpperCase() === "HOTEL15") {
       setPromoApplied(true)
 
-      // Recalcular precios con descuento
       setFormData((prev) => {
-        const priceWithDiscount = prev.price * 0.85 // 15% de descuento
+        const priceWithDiscount = prev.price * 0.85
         const subtotal = priceWithDiscount * prev.nights
         const taxes = subtotal * 0.12
         const serviceFee = subtotal * 0.05
@@ -487,7 +482,6 @@ export default function BookingSteps() {
   )
 
   const nextStep = useCallback(() => {
-    // Validar el paso actual
     if (!validateStep(step)) {
       return
     }
@@ -501,6 +495,7 @@ export default function BookingSteps() {
     window.scrollTo(0, 0)
   }, [])
 
+  // FUNCIÓN MEJORADA PARA ENVIAR RESERVA
   const submitBooking = useCallback(async () => {
     if (!validateStep(3)) {
       return
@@ -510,29 +505,70 @@ export default function BookingSteps() {
     setError(null)
 
     try {
-      const response = await fetch("/api/bookings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(formData),
-      })
+      console.log('📝 Starting booking process...')
 
-      if (!response.ok) {
-        throw new Error(`Error HTTP: ${response.status}`)
+      // Obtener usuario actual para verificar autenticación
+      const currentUser = getCurrentUser()
+      console.log('👤 Current user for booking:', currentUser)
+
+      if (!currentUser) {
+        throw new Error('No se pudo obtener la información del usuario. Por favor, inicia sesión nuevamente.')
       }
 
-      const data = await response.json()
-
-      if (data.success) {
-        setBookingId(data.bookingId)
-        setBookingComplete(true)
-      } else {
-        setError("Reserva fallida: " + (data.error || "Error desconocido"))
+      // PREPARAR DATOS DE FORMA COMPATIBLE CON EL BACKEND
+      const reservationData = {
+        room_id: formData.roomId ? parseInt(formData.roomId) : null,
+        start_date: formData.checkIn || null,
+        end_date: formData.checkOut || null,
+        services: [], // Array vacío por defecto
+        guests: formData.guests ? parseInt(formData.guests.toString()) : 1,
+        total_price: formData.total ? parseFloat(formData.total.toString()) : 0,
+        special_requests: formData.specialRequests || null
       }
-    } catch (error) {
-      console.error("Error al procesar la reserva:", error)
-      setError("Ocurrió un error al procesar su reserva. Por favor, inténtelo de nuevo.")
+
+      // Validación adicional exhaustiva
+      if (!reservationData.room_id || isNaN(reservationData.room_id)) {
+        throw new Error('ID de habitación no válido')
+      }
+      
+      if (!reservationData.start_date || !reservationData.end_date) {
+        throw new Error('Fechas de reserva no válidas')
+      }
+
+      // Validar que las fechas sean correctas
+      const startDate = new Date(reservationData.start_date)
+      const endDate = new Date(reservationData.end_date)
+      
+      if (!isValid(startDate) || !isValid(endDate)) {
+        throw new Error('Las fechas seleccionadas no son válidas')
+      }
+
+      if (startDate >= endDate) {
+        throw new Error('La fecha de salida debe ser posterior a la fecha de entrada')
+      }
+
+      // Asegurar que no haya valores undefined
+      const finalReservationData = {
+        room_id: reservationData.room_id,
+        start_date: reservationData.start_date,
+        end_date: reservationData.end_date,
+        services: reservationData.services,
+        guests: reservationData.guests,
+        total_price: reservationData.total_price,
+        special_requests: reservationData.special_requests
+      }
+
+      console.log('📦 Final reservation data to send:', finalReservationData)
+
+      const result = await createReservation(finalReservationData)
+      console.log('✅ Reservation created:', result)
+
+      setBookingId(result.reservation_id || result.id || `RES-${Date.now()}`)
+      setBookingComplete(true)
+
+    } catch (error: any) {
+      console.error('❌ Error creating reservation:', error)
+      setError(`Error al crear la reserva: ${error.message}`)
     } finally {
       setIsLoading(false)
     }
@@ -571,13 +607,17 @@ export default function BookingSteps() {
           </div>
 
           <div className="flex mb-6">
-            <div className="w-24 h-24 relative rounded-md overflow-hidden mr-4">
-              <Image
-                src={formData.roomImage || "/placeholder.svg"}
-                alt={formData.roomName}
-                fill
-                className="object-cover"
-              />
+            <div className="w-24 h-24 relative rounded-md overflow-hidden mr-4 bg-gray-200 flex items-center justify-center">
+              {formData.roomImage ? (
+                <Image 
+                  src={formData.roomImage} 
+                  alt={formData.roomName}
+                  fill
+                  className="object-cover"
+                />
+              ) : (
+                <span className="text-gray-500 text-sm">Imagen</span>
+              )}
             </div>
             <div>
               <h4 className="font-semibold text-lg">{formData.roomName}</h4>
@@ -647,6 +687,17 @@ export default function BookingSteps() {
                 </p>
               </div>
             </div>
+            {formData.paymentMethod === "hotel" && (
+              <div className="flex items-start">
+                <Wallet className="h-5 w-5 text-blue-600 mr-2 mt-0.5" />
+                <div>
+                  <p className="font-medium text-blue-800">Pago en el Hotel</p>
+                  <p className="text-blue-700">
+                    Deberá realizar el pago al momento del check-in. Aceptamos efectivo y tarjetas.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -660,7 +711,6 @@ export default function BookingSteps() {
     )
   }
 
-  // Renderizar pasos de reserva
   return (
     <div className="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-md">
       {/* Indicador de pasos */}
@@ -693,7 +743,6 @@ export default function BookingSteps() {
         </div>
       </div>
 
-      {/* Mostrar mensajes de error */}
       {error && (
         <Alert variant="destructive" className="mb-6">
           <AlertCircle className="h-4 w-4" />
@@ -785,7 +834,7 @@ export default function BookingSteps() {
             </div>
           </div>
 
-          {/* Selección de habitación */}
+          {/* HABITACIONES SIEMPRE VISIBLES */}
           <div className="mb-6">
             <h3 className="text-lg font-semibold mb-3">Selección de Habitación</h3>
 
@@ -829,8 +878,8 @@ export default function BookingSteps() {
                 <h4 className="font-medium mb-2">Filtros</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="priceRange">Rango de Precio</Label>
-                    <div className="flex items-center space-x-2">
+                    <Label htmlFor="priceRange">Rango de Precio (${minPrice.toLocaleString()} - ${maxPrice.toLocaleString()})</Label>
+                    <div className="flex items-center space-x-2 mt-1">
                       <Input
                         type="number"
                         id="minPrice"
@@ -845,7 +894,7 @@ export default function BookingSteps() {
                         type="number"
                         id="maxPrice"
                         value={maxPrice}
-                        onChange={(e) => setMaxPrice(Math.max(minPrice, Number.parseInt(e.target.value, 10) || 0))}
+                        onChange={(e) => setMaxPrice(Math.max(minPrice, Number.parseInt(e.target.value, 10) || maxPrice))}
                         className="w-24"
                         min={minPrice}
                         aria-label="Precio máximo"
@@ -869,6 +918,9 @@ export default function BookingSteps() {
                     </select>
                   </div>
                 </div>
+                <div className="mt-2 text-sm text-gray-600">
+                  Mostrando {filteredRooms.length} de {availableRooms.length} habitaciones
+                </div>
               </div>
             )}
 
@@ -879,119 +931,108 @@ export default function BookingSteps() {
             ) : filteredRooms.length === 0 ? (
               <div className="text-center py-8 bg-amber-50 rounded-lg">
                 <p className="text-amber-800">No se encontraron habitaciones que coincidan con sus criterios.</p>
+                <Button 
+                  variant="outline" 
+                  className="mt-2"
+                  onClick={() => {
+                    setMinPrice(0)
+                    setMaxPrice(500000)
+                    setCapacity(1)
+                    setSearchTerm("")
+                  }}
+                >
+                  Restablecer filtros
+                </Button>
               </div>
             ) : viewMode === "list" ? (
               <div className="space-y-4">
-                {filteredRooms.map((room) => {
-                  // Generar múltiples imágenes para el carrusel
-                  const roomImages = [
-                    room.image || "/placeholder.svg?height=400&width=600",
-                    "/placeholder.svg?height=400&width=600&text=Vista+1",
-                    "/placeholder.svg?height=400&width=600&text=Vista+2",
-                    "/placeholder.svg?height=400&width=600&text=Baño",
-                  ]
-
-                  return (
-                    <div
-                      key={room.id}
-                      className={`border rounded-lg overflow-hidden ${
-                        formData.roomId === room.id ? "border-primary ring-2 ring-primary/20" : ""
-                      }`}
-                    >
-                      <div className="flex flex-col md:flex-row cursor-pointer">
-                        <div className="md:w-1/3 relative h-48 md:h-auto">
-                          <ImageCarousel
-                            images={roomImages}
-                            alt={room.name}
-                            aspectRatio="video"
-                            showThumbnails={false}
-                          />
-                          <div
-                            className={`absolute top-2 right-2 px-2 py-1 rounded-full text-white text-xs font-medium ${
-                              room.isAvailable ? "bg-green-500" : "bg-red-500"
-                            }`}
-                          >
-                            {room.isAvailable ? "Disponible" : "No disponible"}
-                          </div>
+                {filteredRooms.map((room) => (
+                  <div
+                    key={room.id}
+                    className={`border rounded-lg overflow-hidden ${
+                      formData.roomId === room.id ? "border-primary ring-2 ring-primary/20" : ""
+                    }`}
+                  >
+                    <div className="flex flex-col md:flex-row cursor-pointer">
+                      <div className="md:w-1/3 relative h-48 md:h-auto">
+                        <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                          {room.images && room.images[0] ? (
+                            <Image 
+                              src={room.images[0]} 
+                              alt={room.name}
+                              fill
+                              className="object-cover"
+                            />
+                          ) : (
+                            <span className="text-gray-500">Imagen de habitación</span>
+                          )}
                         </div>
-                        <div className="md:w-2/3 p-4" onClick={() => room.isAvailable && handleRoomSelect(room)}>
-                          <div className="flex justify-between items-start">
-                            <h4 className="text-lg font-semibold">{room.name}</h4>
-                            {formData.roomId === room.id && <Badge className="bg-primary">Seleccionada</Badge>}
+                        <div
+                          className={`absolute top-2 right-2 px-2 py-1 rounded-full text-white text-xs font-medium ${
+                            room.isAvailable ? "bg-green-500" : "bg-red-500"
+                          }`}
+                        >
+                          {room.isAvailable ? "Disponible" : "No disponible"}
+                        </div>
+                      </div>
+                      <div className="md:w-2/3 p-4" onClick={() => room.isAvailable && handleRoomSelect(room)}>
+                        <div className="flex justify-between items-start">
+                          <h4 className="text-lg font-semibold">{room.name}</h4>
+                          {formData.roomId === room.id && <Badge className="bg-primary">Seleccionada</Badge>}
+                        </div>
+
+                        <div className="flex items-center text-gray-600 mt-2">
+                          <Users className="h-4 w-4 mr-1" />
+                          <span>Hasta {room.capacity} huéspedes</span>
+                        </div>
+
+                        <p className="text-gray-600 mt-2 line-clamp-2">{room.description}</p>
+
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {room.amenities?.slice(0, 3).map((amenity, index) => (
+                            <Badge key={index} variant="outline">
+                              {amenity}
+                            </Badge>
+                          ))}
+                          {room.amenities && room.amenities.length > 3 && (
+                            <Badge variant="outline">+{room.amenities.length - 3} más</Badge>
+                          )}
+                        </div>
+
+                        <div className="flex justify-between items-center mt-4 pt-4 border-t">
+                          <div>
+                            <span className="text-2xl font-bold">${(room.price || 0).toLocaleString()}</span>
+                            <span className="text-gray-500"> / noche</span>
                           </div>
 
-                          <div className="flex items-center text-gray-600 mt-2">
-                            <Users className="h-4 w-4 mr-1" />
-                            <span>Hasta {room.capacity} huéspedes</span>
-                          </div>
-
-                          <p className="text-gray-600 mt-2 line-clamp-2">{room.description}</p>
-
-                          <div className="flex flex-wrap gap-2 mt-3">
-                            {room.amenities.slice(0, 3).map((amenity, index) => (
-                              <Badge key={index} variant="outline">
-                                {amenity}
-                              </Badge>
-                            ))}
-                            {room.amenities.length > 3 && (
-                              <Badge variant="outline">+{room.amenities.length - 3} más</Badge>
-                            )}
-                          </div>
-
-                          <div className="flex justify-between items-center mt-4 pt-4 border-t">
-                            <div>
-                              <span className="text-2xl font-bold">${room.price}</span>
-                              <span className="text-gray-500"> / noche</span>
-                            </div>
-
-                            <div className="flex items-center space-x-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  // Actualizar la disponibilidad de la habitación
-                                  setFilteredRooms((prevRooms) =>
-                                    prevRooms.map((r) =>
-                                      r.id === room.id ? { ...r, isAvailable: !r.isAvailable } : r,
-                                    ),
-                                  )
-                                  // También actualizar en availableRooms
-                                  setAvailableRooms((prevRooms) =>
-                                    prevRooms.map((r) =>
-                                      r.id === room.id ? { ...r, isAvailable: !r.isAvailable } : r,
-                                    ),
-                                  )
-                                }}
-                              >
-                                {room.isAvailable ? "Marcar como ocupada" : "Marcar como disponible"}
-                              </Button>
-                              <Button
-                                variant={formData.roomId === room.id ? "default" : "outline"}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  if (room.isAvailable) {
-                                    handleRoomSelect(room)
-                                  }
-                                }}
-                                disabled={!room.isAvailable}
-                              >
-                                {!room.isAvailable
-                                  ? "No disponible"
-                                  : formData.roomId === room.id
-                                    ? "Seleccionada"
-                                    : "Seleccionar"}
-                              </Button>
-                            </div>
-                          </div>
+                          <Button
+                            variant={formData.roomId === room.id ? "default" : "outline"}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (room.isAvailable) {
+                                handleRoomSelect(room)
+                              }
+                            }}
+                            disabled={!room.isAvailable}
+                          >
+                            {!room.isAvailable
+                              ? "No disponible"
+                              : formData.roomId === room.id
+                                ? "Seleccionada"
+                                : "Seleccionar"}
+                          </Button>
                         </div>
                       </div>
                     </div>
-                  )
-                })}
+                  </div>
+                ))}
               </div>
             ) : (
-              <RoomSelectorCinema onSelectRoom={handleRoomSelect} selectedRoomId={formData.roomId} />
+              <RoomSelectorCinema 
+                onSelectRoom={handleRoomSelect} 
+                selectedRoomId={formData.roomId} 
+                rooms={filteredRooms}
+              />
             )}
           </div>
 
@@ -999,18 +1040,23 @@ export default function BookingSteps() {
             <div className="bg-gray-50 p-4 rounded-lg mb-6">
               <h3 className="font-semibold mb-2">Habitación Seleccionada</h3>
               <div className="flex items-center">
-                <div className="relative w-16 h-16 mr-3">
-                  <Image
-                    src={formData.roomImage || "/placeholder.svg"}
-                    alt={formData.roomName}
-                    fill
-                    className="object-cover rounded-md"
-                  />
+                <div className="w-16 h-16 mr-3 bg-gray-200 flex items-center justify-center rounded-md">
+                  {formData.roomImage ? (
+                    <Image 
+                      src={formData.roomImage} 
+                      alt={formData.roomName}
+                      width={64}
+                      height={64}
+                      className="object-cover rounded-md"
+                    />
+                  ) : (
+                    <span className="text-gray-500 text-sm">Imagen</span>
+                  )}
                 </div>
                 <div>
                   <p className="font-medium">{formData.roomName}</p>
                   <p className="text-sm text-gray-600">
-                    {formData.nights} {formData.nights === 1 ? "noche" : "noches"} x ${formData.price} = $
+                    {formData.nights} {formData.nights === 1 ? "noche" : "noches"} x ${formData.price.toLocaleString()} = $
                     {formData.subtotal.toFixed(2)}
                   </p>
                 </div>
@@ -1085,7 +1131,7 @@ export default function BookingSteps() {
             <div className="border-t pt-6 mt-6">
               <div className="flex justify-between mb-2">
                 <span className="text-gray-600">
-                  ${promoApplied ? (formData.price * 0.85).toFixed(2) : formData.price} x {formData.nights}{" "}
+                  ${promoApplied ? (formData.price * 0.85).toFixed(2) : formData.price.toLocaleString()} x {formData.nights}{" "}
                   {formData.nights === 1 ? "noche" : "noches"}
                 </span>
                 <span>${formData.subtotal.toFixed(2)}</span>
@@ -1134,31 +1180,52 @@ export default function BookingSteps() {
         <div>
           <h2 className="text-2xl font-bold mb-6">Información de Pago</h2>
 
-          <div className="mb-6">
-            <Tabs value={paymentTab} onValueChange={setPaymentTab}>
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger
-                  value="credit-card"
-                  onClick={() => setFormData((prev) => ({ ...prev, paymentMethod: "credit-card" }))}
-                >
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Tarjeta de Crédito
-                </TabsTrigger>
-                <TabsTrigger
-                  value="paypal"
-                  onClick={() => setFormData((prev) => ({ ...prev, paymentMethod: "paypal" }))}
-                >
-                  <span className="font-bold text-blue-600">Pay</span>
-                  <span className="font-bold text-blue-800">Pal</span>
-                </TabsTrigger>
-                <TabsTrigger value="hotel" onClick={() => setFormData((prev) => ({ ...prev, paymentMethod: "hotel" }))}>
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Pagar en Hotel
-                </TabsTrigger>
-              </TabsList>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2">
+              <Tabs value={paymentTab} onValueChange={setPaymentTab} className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="hotel">
+                    <Building className="h-4 w-4 mr-2" />
+                    Pagar en Hotel
+                  </TabsTrigger>
+                  <TabsTrigger value="credit-card">
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    Tarjeta
+                  </TabsTrigger>
+                  <TabsTrigger value="paypal">
+                    <Shield className="h-4 w-4 mr-2" />
+                    PayPal
+                  </TabsTrigger>
+                </TabsList>
 
-              <TabsContent value="credit-card" className="mt-4">
-                <div className="space-y-4 bg-white p-4 rounded-lg border">
+                <TabsContent value="hotel" className="space-y-4 mt-4">
+                  <div className="bg-blue-50 p-6 rounded-lg">
+                    <Building className="h-12 w-12 text-blue-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-center mb-2">Pagar en el Hotel</h3>
+                    <p className="text-gray-600 text-center mb-4">
+                      Reserve ahora y pague directamente en el hotel al momento del check-in.
+                    </p>
+                    <div className="bg-white p-4 rounded-md">
+                      <h4 className="font-medium mb-2">Ventajas de pagar en el hotel:</h4>
+                      <ul className="space-y-2 text-sm text-gray-600">
+                        <li className="flex items-center">
+                          <Check className="h-4 w-4 text-green-500 mr-2" />
+                          Sin cargos anticipados
+                        </li>
+                        <li className="flex items-center">
+                          <Check className="h-4 w-4 text-green-500 mr-2" />
+                          Flexibilidad de pago (efectivo o tarjeta)
+                        </li>
+                        <li className="flex items-center">
+                          <Check className="h-4 w-4 text-green-500 mr-2" />
+                          Cancelación gratuita hasta 48 horas antes
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="credit-card" className="space-y-4 mt-4">
                   <div>
                     <Label htmlFor="cardNumber">Número de Tarjeta</Label>
                     <Input
@@ -1167,16 +1234,22 @@ export default function BookingSteps() {
                       placeholder="1234 5678 9012 3456"
                       value={formData.cardNumber}
                       onChange={handleInputChange}
-                      aria-describedby="cardNumberHint"
+                      required
                     />
-                    <p id="cardNumberHint" className="text-xs text-gray-500 mt-1">
-                      Ingrese los 16 dígitos de su tarjeta sin espacios
-                    </p>
                   </div>
+
                   <div>
                     <Label htmlFor="cardName">Nombre en la Tarjeta</Label>
-                    <Input id="cardName" name="cardName" value={formData.cardName} onChange={handleInputChange} />
+                    <Input
+                      id="cardName"
+                      name="cardName"
+                      placeholder="JUAN PEREZ"
+                      value={formData.cardName}
+                      onChange={handleInputChange}
+                      required
+                    />
                   </div>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="cardExpiry">Fecha de Expiración</Label>
@@ -1186,11 +1259,8 @@ export default function BookingSteps() {
                         placeholder="MM/YY"
                         value={formData.cardExpiry}
                         onChange={handleInputChange}
-                        aria-describedby="cardExpiryHint"
+                        required
                       />
-                      <p id="cardExpiryHint" className="text-xs text-gray-500 mt-1">
-                        Formato: MM/YY (ej. 12/25)
-                      </p>
                     </div>
                     <div>
                       <Label htmlFor="cardCvc">CVC</Label>
@@ -1200,117 +1270,105 @@ export default function BookingSteps() {
                         placeholder="123"
                         value={formData.cardCvc}
                         onChange={handleInputChange}
-                        aria-describedby="cardCvcHint"
+                        required
                       />
-                      <p id="cardCvcHint" className="text-xs text-gray-500 mt-1">
-                        3 o 4 dígitos en el reverso de la tarjeta
-                      </p>
                     </div>
                   </div>
-                  <div className="flex items-center mt-2">
-                    <Shield className="h-5 w-5 text-green-600 mr-2" />
-                    <span className="text-sm text-gray-600">
-                      Sus datos de pago están protegidos con encriptación SSL
+                </TabsContent>
+
+                <TabsContent value="paypal" className="text-center mt-4">
+                  <div className="bg-gray-50 p-8 rounded-lg">
+                    <Shield className="h-12 w-12 text-blue-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">Pago Seguro con PayPal</h3>
+                    <p className="text-gray-600 mb-4">
+                      Serás redirigido a PayPal para completar tu pago de manera segura.
+                    </p>
+                    <Button className="w-full bg-yellow-500 hover:bg-yellow-600 text-white">
+                      Pagar con PayPal
+                    </Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
+
+            <div className="lg:col-span-1">
+              <div className="bg-gray-50 p-6 rounded-lg sticky top-4">
+                <h3 className="text-lg font-semibold mb-4">Resumen de Reserva</h3>
+
+                <div className="flex items-center mb-4">
+                  <div className="w-16 h-16 mr-3 bg-gray-200 flex items-center justify-center rounded-md">
+                    {formData.roomImage ? (
+                      <Image 
+                        src={formData.roomImage} 
+                        alt={formData.roomName}
+                        width={64}
+                        height={64}
+                        className="object-cover rounded-md"
+                      />
+                    ) : (
+                      <span className="text-gray-500 text-xs">Imagen</span>
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-medium">{formData.roomName}</p>
+                    <p className="text-sm text-gray-600">
+                      {formData.nights} {formData.nights === 1 ? "noche" : "noches"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Check-in</span>
+                    <span>
+                      {formData.checkIn ? format(new Date(formData.checkIn), "PPP", { locale: es }) : "N/A"}
                     </span>
                   </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="paypal" className="mt-4">
-                <div className="bg-white p-6 rounded-lg border text-center">
-                  <div className="mb-4">
-                    <span className="text-2xl font-bold text-blue-600">Pay</span>
-                    <span className="text-2xl font-bold text-blue-800">Pal</span>
-                  </div>
-                  <p className="mb-4">Será redirigido a PayPal para completar su pago de forma segura.</p>
-                  <p className="text-sm text-gray-600">
-                    Nota: Asegúrese de tener su cuenta de PayPal lista para el proceso de pago.
-                  </p>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="hotel" className="mt-4">
-                <div className="bg-white p-6 rounded-lg border">
-                  <h3 className="font-semibold mb-2">Pago en el Hotel</h3>
-                  <p className="mb-4">
-                    Reserve ahora y pague durante su estancia. No se realizará ningún cargo a su tarjeta en este
-                    momento.
-                  </p>
-                  <Alert className="bg-amber-50 border-amber-200">
-                    <Info className="h-4 w-4 text-amber-600" />
-                    <AlertDescription className="text-amber-600">
-                      Se requiere una tarjeta de crédito válida para garantizar su reserva. Se aplicará un cargo de una
-                      noche en caso de no presentarse.
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              </TabsContent>
-            </Tabs>
-          </div>
-
-          <div className="bg-gray-50 p-4 rounded-lg mb-6">
-            <h3 className="font-semibold mb-2">Resumen de la Reserva</h3>
-            <div className="flex items-center mb-4">
-              <div className="relative w-16 h-16 mr-3">
-                <Image
-                  src={formData.roomImage || "/placeholder.svg"}
-                  alt={formData.roomName}
-                  fill
-                  className="object-cover rounded-md"
-                />
-              </div>
-              <div>
-                <p className="font-medium">{formData.roomName}</p>
-                <div className="text-sm text-gray-600">
-                  <div className="flex items-center">
-                    <Calendar className="h-4 w-4 mr-1" />
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Check-out</span>
                     <span>
-                      {formData.checkIn ? format(new Date(formData.checkIn), "PPP", { locale: es }) : "N/A"} -
                       {formData.checkOut ? format(new Date(formData.checkOut), "PPP", { locale: es }) : "N/A"}
                     </span>
                   </div>
-                  <div className="flex items-center mt-1">
-                    <Users className="h-4 w-4 mr-1" />
-                    <span>{formData.guests} huéspedes</span>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Huéspedes</span>
+                    <span>{formData.guests}</span>
                   </div>
                 </div>
-              </div>
-            </div>
 
-            <div className="border-t pt-4">
-              <div className="flex justify-between mb-1">
-                <span className="text-gray-600">
-                  ${promoApplied ? (formData.price * 0.85).toFixed(2) : formData.price} x {formData.nights}{" "}
-                  {formData.nights === 1 ? "noche" : "noches"}
-                </span>
-                <span>${formData.subtotal.toFixed(2)}</span>
-              </div>
-              {promoApplied && (
-                <div className="flex justify-between text-green-600">
-                  <span>Descuento (15%)</span>
-                  <span>-${(formData.price * 0.15 * formData.nights).toFixed(2)}</span>
+                <div className="border-t pt-4 mt-4">
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-600">Subtotal</span>
+                    <span>${formData.subtotal.toFixed(2)}</span>
+                  </div>
+                  {promoApplied && (
+                    <div className="flex justify-between mb-1 text-green-600">
+                      <span>Descuento (15%)</span>
+                      <span>-${(formData.price * 0.15 * formData.nights).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-600">Impuestos</span>
+                    <span>${formData.taxes.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-600">Tarifa de servicio</span>
+                    <span>${formData.serviceFee.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold pt-2 border-t mt-2">
+                    <span>Total</span>
+                    <span>${formData.total.toFixed(2)}</span>
+                  </div>
                 </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-gray-600">Impuestos (12%)</span>
-                <span>${formData.taxes.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Tarifa de servicio</span>
-                <span>${formData.serviceFee.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between font-bold pt-2 border-t mt-2">
-                <span>Total</span>
-                <span>${formData.total.toFixed(2)}</span>
               </div>
             </div>
           </div>
 
           <div className="flex justify-between mt-6">
             <Button variant="outline" onClick={prevStep}>
-              Volver
+              Atrás
             </Button>
-            <Button onClick={nextStep}>Revisar Reserva</Button>
+            <Button onClick={nextStep}>Continuar a Confirmación</Button>
           </div>
         </div>
       )}
@@ -1318,153 +1376,133 @@ export default function BookingSteps() {
       {/* Paso 3: Confirmación */}
       {step === 3 && (
         <div>
-          <h2 className="text-2xl font-bold mb-6">Revisar su Reserva</h2>
+          <h2 className="text-2xl font-bold mb-6">Confirmación de Reserva</h2>
 
-          <div className="bg-gray-50 p-4 rounded-md mb-6">
-            <h3 className="font-semibold mb-2">Habitación Seleccionada</h3>
-            <div className="flex items-center mb-3">
-              <div className="relative w-20 h-20 mr-3">
-                <Image
-                  src={formData.roomImage || "/placeholder.svg"}
-                  alt={formData.roomName}
-                  fill
-                  className="object-cover rounded-md"
-                />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2">
+              <div className="bg-gray-50 p-6 rounded-lg mb-6">
+                <h3 className="text-lg font-semibold mb-4">Términos y Condiciones</h3>
+
+                <div className="space-y-4 max-h-60 overflow-y-auto p-4 bg-white rounded-md">
+                  <div>
+                    <h4 className="font-medium mb-2">Política de Cancelación</h4>
+                    <p className="text-sm text-gray-600">
+                      Puedes cancelar tu reserva de forma gratuita hasta 48 horas antes de tu fecha de check-in. 
+                      Las cancelaciones realizadas con menos de 48 horas de antelación estarán sujetas a un cargo 
+                      equivalente a la primera noche de estancia.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium mb-2">Política de No Show</h4>
+                    <p className="text-sm text-gray-600">
+                      En caso de no presentarse el día del check-in sin previa cancelación, se cobrará el importe 
+                      total de la estancia reservada.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium mb-2">Política de Huéspedes</h4>
+                    <p className="text-sm text-gray-600">
+                      El número de huéspedes no puede exceder la capacidad máxima de la habitación. 
+                      Se requiere identificación válida para todos los huéspedes al momento del check-in.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium mb-2">Horarios</h4>
+                    <p className="text-sm text-gray-600">
+                      Check-in: a partir de las 15:00 | Check-out: hasta las 12:00. 
+                      Horarios fuera de este rango están sujetos a disponibilidad y pueden generar cargos adicionales.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2 mt-4">
+                  <Checkbox
+                    id="terms"
+                    checked={termsAccepted}
+                    onCheckedChange={(checked) => setTermsAccepted(checked as boolean)}
+                  />
+                  <Label htmlFor="terms" className="text-sm">
+                    Acepto los términos y condiciones y la política de privacidad
+                  </Label>
+                </div>
               </div>
-              <div>
-                <p className="font-medium">{formData.roomName}</p>
-                <p className="text-sm text-gray-600">
-                  {formData.nights} {formData.nights === 1 ? "noche" : "noches"} x ${formData.price} = $
-                  {formData.subtotal.toFixed(2)}
-                </p>
+
+              <Alert className="bg-blue-50 border-blue-200">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-600">
+                  Al completar esta reserva, aceptas nuestras políticas y autorizas el cargo correspondiente 
+                  en tu método de pago.
+                </AlertDescription>
+              </Alert>
+            </div>
+
+            <div className="lg:col-span-1">
+              <div className="bg-gray-50 p-6 rounded-lg sticky top-4">
+                <h3 className="text-lg font-semibold mb-4">Resumen Final</h3>
+
+                <div className="flex items-center mb-4">
+                  <div className="w-16 h-16 mr-3 bg-gray-200 flex items-center justify-center rounded-md">
+                    {formData.roomImage ? (
+                      <Image 
+                        src={formData.roomImage} 
+                        alt={formData.roomName}
+                        width={64}
+                        height={64}
+                        className="object-cover rounded-md"
+                      />
+                    ) : (
+                      <span className="text-gray-500 text-xs">Imagen</span>
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-medium">{formData.roomName}</p>
+                    <p className="text-sm text-gray-600">
+                      {formData.nights} {formData.nights === 1 ? "noche" : "noches"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Fechas</span>
+                    <span className="text-right">
+                      {formData.checkIn ? format(new Date(formData.checkIn), "dd/MM/yy") : "N/A"} -{" "}
+                      {formData.checkOut ? format(new Date(formData.checkOut), "dd/MM/yy") : "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Huéspedes</span>
+                    <span>{formData.guests}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Método de pago</span>
+                    <span className="capitalize">
+                      {formData.paymentMethod === "hotel" ? "Pago en Hotel" : 
+                       formData.paymentMethod === "credit-card" ? "Tarjeta de Crédito" : 
+                       "PayPal"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4 mt-4">
+                  <div className="flex justify-between font-bold text-lg">
+                    <span>Total a Pagar</span>
+                    <span>${formData.total.toFixed(2)}</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-
-          <div className="bg-gray-50 p-4 rounded-md mb-6">
-            <h3 className="font-semibold mb-2">Detalles de la Reserva</h3>
-            <div className="grid grid-cols-2 gap-y-2">
-              <div className="text-gray-600">Check-in:</div>
-              <div>{formData.checkIn ? format(new Date(formData.checkIn), "PPP", { locale: es }) : "N/A"}</div>
-              <div className="text-gray-600">Check-out:</div>
-              <div>{formData.checkOut ? format(new Date(formData.checkOut), "PPP", { locale: es }) : "N/A"}</div>
-              <div className="text-gray-600">Huéspedes:</div>
-              <div>{formData.guests}</div>
-              <div className="text-gray-600">Noches:</div>
-              <div>{formData.nights}</div>
-            </div>
-          </div>
-
-          <div className="bg-gray-50 p-4 rounded-md mb-6">
-            <h3 className="font-semibold mb-2">Información del Huésped</h3>
-            <div className="grid grid-cols-2 gap-y-2">
-              <div className="text-gray-600">Nombre:</div>
-              <div>{formData.name}</div>
-              <div className="text-gray-600">Email:</div>
-              <div>{formData.email}</div>
-              <div className="text-gray-600">Teléfono:</div>
-              <div>{formData.phone}</div>
-              {formData.specialRequests && (
-                <>
-                  <div className="text-gray-600">Solicitudes Especiales:</div>
-                  <div>{formData.specialRequests}</div>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-gray-50 p-4 rounded-md mb-6">
-            <h3 className="font-semibold mb-2">Información de Pago</h3>
-            <div className="grid grid-cols-2 gap-y-2">
-              <div className="text-gray-600">Método de Pago:</div>
-              <div>
-                {formData.paymentMethod === "credit-card" && "Tarjeta de Crédito"}
-                {formData.paymentMethod === "paypal" && "PayPal"}
-                {formData.paymentMethod === "hotel" && "Pago en el Hotel"}
-              </div>
-              {formData.paymentMethod === "credit-card" && formData.cardNumber && (
-                <>
-                  <div className="text-gray-600">Número de Tarjeta:</div>
-                  <div>**** **** **** {formData.cardNumber.slice(-4)}</div>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="border-t pt-6 mt-6">
-            <div className="flex justify-between mb-1">
-              <span className="text-gray-600">
-                ${promoApplied ? (formData.price * 0.85).toFixed(2) : formData.price} x {formData.nights}{" "}
-                {formData.nights === 1 ? "noche" : "noches"}
-              </span>
-              <span>${formData.subtotal.toFixed(2)}</span>
-            </div>
-            {promoApplied && (
-              <div className="flex justify-between text-green-600">
-                <span>Descuento (15%)</span>
-                <span>-${(formData.price * 0.15 * formData.nights).toFixed(2)}</span>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <span className="text-gray-600">Impuestos (12%)</span>
-              <span>${formData.taxes.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Tarifa de servicio</span>
-              <span>${formData.serviceFee.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between font-bold pt-2 border-t mt-2">
-              <span>Total</span>
-              <span>${formData.total.toFixed(2)}</span>
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <div className="flex items-center mb-4">
-              <Checkbox
-                id="terms"
-                checked={termsAccepted}
-                onCheckedChange={(checked) => setTermsAccepted(checked === true)}
-                className="mr-2"
-              />
-              <label htmlFor="terms" className="text-sm text-gray-600">
-                Acepto los términos y condiciones y la política de cancelación
-              </label>
             </div>
           </div>
 
           <div className="flex justify-between mt-6">
             <Button variant="outline" onClick={prevStep}>
-              Volver
+              Atrás
             </Button>
             <Button onClick={submitBooking} disabled={isLoading || !termsAccepted}>
-              {isLoading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                  </svg>
-                  Procesando...
-                </span>
-              ) : (
-                "Confirmar Reserva"
-              )}
+              {isLoading ? "Procesando..." : "Confirmar Reserva"}
             </Button>
           </div>
         </div>

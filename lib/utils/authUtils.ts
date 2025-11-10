@@ -1,8 +1,24 @@
 // lib/utils/authUtils.ts
 const API_BASE_URL = 'http://localhost:5000/api';
 
+// Función segura para localStorage
+const getLocalStorageItem = (key: string): string | null => {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem(key)
+}
+
+const setLocalStorageItem = (key: string, value: string): void => {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(key, value)
+}
+
+const removeLocalStorageItem = (key: string): void => {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(key)
+}
+
 export const authUtils = {
-  // Login real con backend - CON DEBUG
+  // Login real con backend
   async login(email: string, password: string) {
     try {
       console.log('🔄 Attempting login with:', { email, password: password.substring(0, 4) })
@@ -24,17 +40,16 @@ export const authUtils = {
       }
 
       const data = await response.json()
-      console.log('✅ Login success:', data)
+      console.log('✅ Login success - Full response:', data)
 
-      // Guardar en localStorage
-      localStorage.setItem('accessToken', data.tokens.accessToken)
-      localStorage.setItem('refreshToken', data.tokens.refreshToken)
-      localStorage.setItem('user', JSON.stringify(data.user))
+      // Guardar en localStorage de forma segura
+      if (data.tokens) {
+        setLocalStorageItem('accessToken', data.tokens.accessToken)
+        setLocalStorageItem('refreshToken', data.tokens.refreshToken)
+        setLocalStorageItem('user', JSON.stringify(data.user))
+      }
 
-      console.log('💾 Saved to localStorage:', {
-        accessToken: data.tokens.accessToken ? 'YES' : 'NO',
-        user: data.user ? 'YES' : 'NO'
-      })
+      console.log('💾 Saved user to localStorage:', data.user)
       
       return data.user
     } catch (error) {
@@ -43,49 +58,131 @@ export const authUtils = {
     }
   },
 
-  // Registro real con backend
-  async register(userData: any) {
-    try {
-      console.log('🔄 Attempting register with:', userData)
-      
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(userData),
-      });
-
-      console.log('📡 Register response status:', response.status)
-      
-      if (!response.ok) {
-        const errorData = await response.json()
-        console.log('❌ Register error:', errorData)
-        throw new Error(errorData.error || 'Error en el registro')
-      }
-
-      const data = await response.json()
-      console.log('✅ Register success:', data)
-      
-      return data
-    } catch (error) {
-      console.error('🔥 Register error:', error)
-      throw error
-    }
-  },
-
   // Obtener ruta del dashboard según rol
   getDashboardRoute(user: any) {
     console.log('🎯 Getting dashboard route for user:', user)
     
-    const route = user.role === 'Empleado' ? '/admin' : '/dashboard'
+    // Verificar diferentes formas en que puede venir el rol
+    let userRole = '';
+    
+    if (user?.usuario_acceso === 'Empleado') {
+      userRole = 'admin';
+    } else if (user?.role === 'Empleado') {
+      userRole = 'admin';
+    } else if (user?.cargo_empleado) {
+      userRole = 'admin';
+    } else if (user?.usuario_acceso === 'Cliente' || user?.role === 'Cliente') {
+      userRole = 'client';
+    } else {
+      userRole = 'client';
+    }
+
+    console.log('🔍 Detected user role:', userRole)
+    
+    const route = userRole === 'admin' ? '/admin' : '/dashboard'
     console.log('🔄 Redirecting to:', route)
     return route
   },
 
+  // Verificar si es admin
+  isAdmin(user: any) {
+    if (!user) return false;
+    
+    return (
+      user?.usuario_acceso === 'Empleado' ||
+      user?.role === 'Empleado' ||
+      user?.cargo_empleado !== undefined
+    );
+  },
+
+  // Obtener usuario actual
+  getCurrentUser() {
+    const userStr = getLocalStorageItem('user')
+    const user = userStr ? JSON.parse(userStr) : null
+    console.log('👤 Getting current user from storage:', user)
+    return user
+  },
+
+  // Verificar acceso de admin
+  hasAdminAccess(user: any) {
+    return this.isAdmin(user);
+  },
+
+  // Registro real con backend
+  async register(userData: {
+    nombre: string;
+    apellido: string;
+    email: string;
+    password: string;
+    telefono: string;
+    direccion: string;
+    nacionalidad: string;
+  }) {
+    try {
+      console.log('🔄 Attempting register with:', { 
+        nombre: userData.nombre,
+        apellido: userData.apellido,
+        email: userData.email,
+        telefono: userData.telefono,
+        tiene_password: !!userData.password
+      })
+
+      const response = await fetch(`${API_BASE_URL}/clients`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nombre_cliente: userData.nombre,
+          apellido_cliente: userData.apellido,
+          correo_cliente: userData.email,
+          telefono_cliente: userData.telefono,
+          direccion_cliente: userData.direccion,
+          nacionalidad: userData.nacionalidad,
+          contraseña_usuario: userData.password
+        }),
+      });
+
+      console.log('📡 Registration response status:', response.status)
+      
+      if (!response.ok) {
+        let errorMessage = `Error del servidor: ${response.status}`;
+        
+        try {
+          const errorData = await response.json();
+          console.log('❌ Server error details:', errorData);
+          errorMessage = errorData.error || errorData.details || errorMessage;
+        } catch (parseError) {
+          console.log('❌ Could not parse error response');
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      const result = await response.json();
+      console.log('✅ Registration successful:', result);
+      
+      return {
+        ...result,
+        message: 'Cuenta creada exitosamente'
+      };
+      
+    } catch (error) {
+      console.error('🔥 Register error:', error);
+      
+      if (error.message.includes('Failed to fetch') || error.message.includes('Connection refused')) {
+        throw new Error('No se puede conectar con el servidor. Verifica que el backend esté corriendo en http://localhost:5000');
+      } else if (error.message.includes('Network Error')) {
+        throw new Error('Error de red. Verifica tu conexión a internet.');
+      } else {
+        throw error;
+      }
+    }
+  },
+
   // Verificar si está autenticado
   isAuthenticated() {
-    const token = localStorage.getItem('accessToken')
+    const token = getLocalStorageItem('accessToken')
     const isAuth = !!token
     console.log('🔐 Authentication check:', isAuth)
     return isAuth
@@ -94,22 +191,21 @@ export const authUtils = {
   // Cerrar sesión
   logout() {
     console.log('🚪 Logging out...')
-    localStorage.removeItem('accessToken')
-    localStorage.removeItem('refreshToken')
-    localStorage.removeItem('user')
-    window.location.href = '/auth/login'
+    removeLocalStorageItem('accessToken')
+    removeLocalStorageItem('refreshToken')
+    removeLocalStorageItem('user')
+    if (typeof window !== 'undefined') {
+      window.location.href = '/auth/login'
+    }
   },
 
   // Obtener token
   getToken() {
-    return localStorage.getItem('accessToken')
+    return getLocalStorageItem('accessToken')
   },
 
   // Obtener usuario
   getUser() {
-    const userStr = localStorage.getItem('user')
-    const user = userStr ? JSON.parse(userStr) : null
-    console.log('👤 Getting user from storage:', user)
-    return user
+    return this.getCurrentUser()
   }
 };

@@ -1,3 +1,4 @@
+// components/booking-form.tsx
 "use client"
 
 import { useState } from "react"
@@ -8,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
-import { format, differenceInDays, addDays } from "date-fns"
+import { format, differenceInDays, addDays, isValid } from "date-fns"
 import { es } from "date-fns/locale"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -71,6 +72,8 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
   const totalPrice = subtotal + taxes + serviceFee
 
   const handleCheckInChange = (date: Date | undefined) => {
+    if (!date || !isValid(date)) return
+    
     setCheckIn(date)
     if (date && checkOut && checkOut <= date) {
       setCheckOut(addDays(date, 1))
@@ -80,11 +83,16 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
     }
   }
 
+  const handleCheckOutChange = (date: Date | undefined) => {
+    if (!date || !isValid(date)) return
+    setCheckOut(date)
+  }
+
   const handleApplyPromo = () => {
     if (promoCode.toUpperCase() === "HOTEL15") {
       setPromoApplied(true)
     } else {
-      alert("Código promocional inválido")
+      alert("Código promocional inválido. Intente con 'HOTEL15'")
     }
   }
 
@@ -111,22 +119,34 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
       return
     }
 
+    // Validar formato de email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(clientData.email)) {
+      alert("Por favor ingrese un correo electrónico válido")
+      return
+    }
+
     setIsLoading(true)
 
     try {
+      // Preparar datos del cliente de forma segura
+      const clientPayload = {
+        nombre_cliente: clientData.nombre || null,
+        apellido_cliente: clientData.apellido || null,
+        correo_cliente: clientData.email || null,
+        telefono_cliente: clientData.telefono || null,
+        nacionalidad: clientData.nacionalidad || null
+      }
+
+      console.log('📦 Client data to send:', clientPayload)
+
       // Primero crear el cliente si no existe
       const clientResponse = await fetch('http://localhost:5000/api/clients', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          nombre_cliente: clientData.nombre,
-          apellido_cliente: clientData.apellido,
-          correo_cliente: clientData.email,
-          telefono_cliente: clientData.telefono,
-          nacionalidad: clientData.nacionalidad
-        })
+        body: JSON.stringify(clientPayload)
       })
 
       const clientResult = await clientResponse.json()
@@ -135,16 +155,34 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
         throw new Error(clientResult.error || 'Error al crear cliente')
       }
 
-      console.log('✅ Client created:', clientResult.client_id)
+      console.log('✅ Client created:', clientResult)
 
-      // Preparar servicios para la reserva
+      // Preparar servicios para la reserva de forma segura
       const serviciosReserva = selectedServices.map(service => ({
-        id_servicio: parseInt(service.id),
-        cantidad: service.cantidad || 1,
-        precio_total: service.price * (service.cantidad || 1)
-      }))
+        id_servicio: service.id ? parseInt(service.id) : null,
+        cantidad: service.cantidad ? parseInt(service.cantidad.toString()) : 1,
+        precio_total: service.price ? parseFloat(service.price.toString()) * (service.cantidad || 1) : 0
+      })).filter(service => service.id_servicio !== null)
 
       console.log('📦 Services for reservation:', serviciosReserva)
+
+      // Preparar datos de reserva de forma segura
+      const reservationPayload = {
+        cliente_id: clientResult.client_id ? parseInt(clientResult.client_id.toString()) : null,
+        habitacion_id: roomId ? parseInt(roomId) : null,
+        fecha_inicio: checkIn ? format(checkIn, "yyyy-MM-dd") : null,
+        fecha_fin: checkOut ? format(checkOut, "yyyy-MM-dd") : null,
+        servicios: serviciosReserva,
+        total_price: totalPrice || 0
+      }
+
+      // Validar datos críticos de reserva
+      if (!reservationPayload.cliente_id || !reservationPayload.habitacion_id || 
+          !reservationPayload.fecha_inicio || !reservationPayload.fecha_fin) {
+        throw new Error('Datos de reserva incompletos')
+      }
+
+      console.log('📦 Reservation data to send:', reservationPayload)
 
       // Crear la reserva
       const reservationResponse = await fetch('http://localhost:5000/api/reservations', {
@@ -152,13 +190,7 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          cliente_id: clientResult.client_id,
-          habitacion_id: parseInt(roomId),
-          fecha_inicio: format(checkIn, "yyyy-MM-dd"),
-          fecha_fin: format(checkOut, "yyyy-MM-dd"),
-          servicios: serviciosReserva
-        })
+        body: JSON.stringify(reservationPayload)
       })
 
       const reservationResult = await reservationResponse.json()
@@ -167,14 +199,14 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
         throw new Error(reservationResult.error || 'Error al crear reserva')
       }
 
-      console.log('✅ Reservation created:', reservationResult.reservation_id)
+      console.log('✅ Reservation created:', reservationResult)
 
       // Redirigir a confirmación
       router.push(`/booking/confirmation?reservation_id=${reservationResult.reservation_id}`)
 
     } catch (error) {
       console.error('❌ Error creating reservation:', error)
-      alert('Error al crear la reserva. Por favor intente nuevamente.')
+      alert('Error al crear la reserva: ' + (error instanceof Error ? error.message : 'Error desconocido'))
     } finally {
       setIsLoading(false)
     }
@@ -291,7 +323,7 @@ export default function BookingForm({ roomId, price }: BookingFormProps) {
                 <CalendarComponent
                   mode="single"
                   selected={checkOut}
-                  onSelect={setCheckOut}
+                  onSelect={handleCheckOutChange}
                   initialFocus
                   disabled={(date) => (checkIn ? date <= checkIn : false) || date < new Date()}
                   locale={es}

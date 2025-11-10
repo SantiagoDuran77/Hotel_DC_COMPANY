@@ -14,7 +14,7 @@ import reservationRoutes from "./routes/reservations.js"
 import serviceRoutes from "./routes/services.js"
 import paymentRoutes from "./routes/payments.js"
 import dashboardRoutes from "./routes/dashboard.js"
-import clientRoutes from "./routes/clients.js" // AGREGAR ESTA LÍNEA
+import clientRoutes from "./routes/clients.js"
 
 // Importar middleware
 import { errorHandler } from "./middleware/errorHandler.js"
@@ -75,7 +75,7 @@ app.use("/api/reservations", reservationRoutes)
 app.use("/api/services", serviceRoutes)
 app.use("/api/payments", paymentRoutes)
 app.use("/api/dashboard", dashboardRoutes)
-app.use("/api/clients", clientRoutes) // AGREGAR ESTA LÍNEA
+app.use("/api/clients", clientRoutes)
 
 // Ruta de salud del servidor
 app.get("/api/health", (req, res) => {
@@ -84,6 +84,14 @@ app.get("/api/health", (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || "development",
+  })
+})
+
+// Ruta específica para users (por si acaso)
+app.get("/api/users/test", (req, res) => {
+  res.json({
+    message: "Ruta de usuarios funcionando",
+    timestamp: new Date().toISOString()
   })
 })
 
@@ -96,6 +104,14 @@ app.use("*", (req, res) => {
     error: "Ruta no encontrada",
     path: req.originalUrl,
     method: req.method,
+    availableRoutes: [
+      "/api/health",
+      "/api/users",
+      "/api/rooms", 
+      "/api/services",
+      "/api/clients",
+      "/api/reservations"
+    ]
   })
 })
 
@@ -106,6 +122,9 @@ app.listen(PORT, () => {
   console.log(`🔓 MODO: Autenticación temporalmente desactivada`)
   console.log(`📋 Rutas disponibles:`)
   console.log(`   GET  /api/health`)
+  console.log(`   GET  /api/users`)
+  console.log(`   GET  /api/users/test`)
+  console.log(`   GET  /api/rooms`) // ✅ AQUÍ ESTABA FALTANDO ESTA LÍNEA
   console.log(`   GET  /api/services`)
   console.log(`   POST /api/clients`)
   console.log(`   POST /api/reservations`)

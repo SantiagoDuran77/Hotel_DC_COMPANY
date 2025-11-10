@@ -1,79 +1,52 @@
 import { executeQuery } from "../config/database.js"
 import { asyncHandler } from "../middleware/errorHandler.js"
 
-// Obtener todas las habitaciones
+// Obtener todas las habitaciones - SIN PAGINACIÓN
 export const getRooms = asyncHandler(async (req, res) => {
   const {
-    page = 1,
-    limit = 10,
     tipo = "",
     estado = "",
-    precio_min = 0,
-    precio_max = 999999999,
   } = req.query
 
-  const offset = (page - 1) * limit
-
-  const whereConditions = ["1=1"] // Siempre verdadero para simplificar
+  const whereConditions = ["1=1"]
   const params = []
 
-  if (tipo) {
+  if (tipo && tipo !== 'all') {
     whereConditions.push("h.tipo_habitacion = ?")
     params.push(tipo)
   }
 
-  if (estado) {
+  if (estado && estado !== 'all') {
     whereConditions.push("h.estado_habitacion = ?")
     params.push(estado)
   }
 
-  whereConditions.push("h.precio BETWEEN ? AND ?")
-  params.push(precio_min, precio_max)
-
   const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(" AND ")}` : ""
 
-  // Consulta principal con detalles - CORREGIDA para tu esquema
+  // Consulta SIN paginación para obtener TODAS las habitaciones
   const query = `
     SELECT h.*, dh.descripcion, dh.capacidad, dh.servicios_incluidos
     FROM Habitacion h
     LEFT JOIN detalles_habitacion dh ON h.id_habitacion = dh.id_habitacion
     ${whereClause}
     ORDER BY h.numero_habitacion
-    LIMIT ? OFFSET ?
   `
-
-  params.push(Number.parseInt(limit), Number.parseInt(offset))
 
   const rooms = await executeQuery(query, params)
 
-  // Contar total para paginación
-  const countQuery = `
-    SELECT COUNT(*) as total
-    FROM Habitacion h
-    ${whereClause}
-  `
-
-  const countParams = params.slice(0, -2) // Remover limit y offset
-  const totalResult = await executeQuery(countQuery, countParams)
-  const total = totalResult[0].total
-
   res.json({
+    success: true,
     rooms: rooms.map((room) => ({
-      id: room.id_habitacion,
-      numero: room.numero_habitacion,
-      tipo: room.tipo_habitacion,
-      estado: room.estado_habitacion,
+      id_habitacion: room.id_habitacion,
+      numero_habitacion: room.numero_habitacion,
+      tipo_habitacion: room.tipo_habitacion,
+      estado_habitacion: room.estado_habitacion,
       precio: room.precio,
       descripcion: room.descripcion,
       capacidad: room.capacidad,
       servicios_incluidos: room.servicios_incluidos,
     })),
-    pagination: {
-      page: Number.parseInt(page),
-      limit: Number.parseInt(limit),
-      total,
-      pages: Math.ceil(total / limit),
-    },
+    count: rooms.length,
   })
 })
 
@@ -101,14 +74,17 @@ export const getRoomById = asyncHandler(async (req, res) => {
   const room = rooms[0]
 
   res.json({
-    id: room.id_habitacion,
-    numero: room.numero_habitacion,
-    tipo: room.tipo_habitacion,
-    estado: room.estado_habitacion,
-    precio: room.precio,
-    descripcion: room.descripcion,
-    capacidad: room.capacidad,
-    servicios_incluidos: room.servicios_incluidos,
+    success: true,
+    room: {
+      id_habitacion: room.id_habitacion,
+      numero_habitacion: room.numero_habitacion,
+      tipo_habitacion: room.tipo_habitacion,
+      estado_habitacion: room.estado_habitacion,
+      precio: room.precio,
+      descripcion: room.descripcion,
+      capacidad: room.capacidad,
+      servicios_incluidos: room.servicios_incluidos,
+    }
   })
 })
 
@@ -122,6 +98,9 @@ export const createRoom = asyncHandler(async (req, res) => {
     capacidad,
     servicios_incluidos,
   } = req.body
+
+  console.log('🔄 Creating room with data:', req.body)
+  console.log('👤 User creating room:', req.user)
 
   // Verificar que no existe habitación con ese número
   const existingRoom = await executeQuery("SELECT id_habitacion FROM Habitacion WHERE numero_habitacion = ?", [
@@ -157,16 +136,40 @@ export const createRoom = asyncHandler(async (req, res) => {
     )
   }
 
+  // Obtener la habitación creada
+  const [newRoom] = await executeQuery(
+    `
+    SELECT h.*, dh.descripcion, dh.capacidad, dh.servicios_incluidos
+    FROM Habitacion h
+    LEFT JOIN detalles_habitacion dh ON h.id_habitacion = dh.id_habitacion
+    WHERE h.id_habitacion = ?
+  `,
+    [roomId],
+  )
+
   res.status(201).json({
+    success: true,
     message: "Habitación creada exitosamente",
-    roomId,
+    room: {
+      id_habitacion: newRoom.id_habitacion,
+      numero_habitacion: newRoom.numero_habitacion,
+      tipo_habitacion: newRoom.tipo_habitacion,
+      estado_habitacion: newRoom.estado_habitacion,
+      precio: newRoom.precio,
+      descripcion: newRoom.descripcion,
+      capacidad: newRoom.capacidad,
+      servicios_incluidos: newRoom.servicios_incluidos,
+    }
   })
 })
 
-// Actualizar habitación (solo admin)
+// Actualizar habitación (solo admin) - CORREGIDO
 export const updateRoom = asyncHandler(async (req, res) => {
   const { id } = req.params
-  const { numero_habitacion, tipo_habitacion, estado_habitacion, precio } = req.body
+  const { numero_habitacion, tipo_habitacion, estado_habitacion, precio, descripcion, capacidad, servicios_incluidos } = req.body
+
+  console.log('🔄 Updating room:', id, req.body)
+  console.log('👤 User updating room:', req.user)
 
   // Verificar que la habitación existe
   const existingRoom = await executeQuery("SELECT id_habitacion FROM Habitacion WHERE id_habitacion = ?", [id])
@@ -176,6 +179,21 @@ export const updateRoom = asyncHandler(async (req, res) => {
       error: "Habitación no encontrada",
       code: "ROOM_NOT_FOUND",
     })
+  }
+
+  // Verificar si el nuevo número de habitación ya existe (excluyendo la actual)
+  if (numero_habitacion) {
+    const numberCheck = await executeQuery(
+      'SELECT id_habitacion FROM Habitacion WHERE numero_habitacion = ? AND id_habitacion != ?',
+      [numero_habitacion, id]
+    )
+
+    if (numberCheck.length > 0) {
+      return res.status(400).json({
+        error: "El número de habitación ya existe",
+        code: "ROOM_NUMBER_EXISTS",
+      })
+    }
   }
 
   // Actualizar habitación
@@ -188,14 +206,72 @@ export const updateRoom = asyncHandler(async (req, res) => {
     [numero_habitacion, tipo_habitacion, estado_habitacion, precio, id],
   )
 
+  // Verificar si existen detalles para esta habitación - CORREGIDO
+  try {
+    const detailRows = await executeQuery(
+      'SELECT id_detalle_habitacion FROM detalles_habitacion WHERE id_habitacion = ?',
+      [id]
+    )
+
+    if (detailRows && detailRows.length > 0) {
+      // Actualizar detalles existentes
+      await executeQuery(
+        `
+        UPDATE detalles_habitacion 
+        SET descripcion = ?, capacidad = ?, servicios_incluidos = ?
+        WHERE id_habitacion = ?
+      `,
+        [descripcion || '', capacidad || 2, servicios_incluidos || '', id]
+      )
+    } else {
+      // Insertar nuevos detalles
+      await executeQuery(
+        `
+        INSERT INTO detalles_habitacion 
+        (descripcion, capacidad, servicios_incluidos, id_habitacion) 
+        VALUES (?, ?, ?, ?)
+      `,
+        [descripcion || '', capacidad || 2, servicios_incluidos || '', id]
+      )
+    }
+  } catch (error) {
+    console.error('Error managing room details:', error)
+    // Continuar incluso si hay error en los detalles
+  }
+
+  // Obtener la habitación actualizada
+  const [updatedRoom] = await executeQuery(
+    `
+    SELECT h.*, dh.descripcion, dh.capacidad, dh.servicios_incluidos
+    FROM Habitacion h
+    LEFT JOIN detalles_habitacion dh ON h.id_habitacion = dh.id_habitacion
+    WHERE h.id_habitacion = ?
+  `,
+    [id],
+  )
+
   res.json({
+    success: true,
     message: "Habitación actualizada exitosamente",
+    room: {
+      id_habitacion: updatedRoom.id_habitacion,
+      numero_habitacion: updatedRoom.numero_habitacion,
+      tipo_habitacion: updatedRoom.tipo_habitacion,
+      estado_habitacion: updatedRoom.estado_habitacion,
+      precio: updatedRoom.precio,
+      descripcion: updatedRoom.descripcion,
+      capacidad: updatedRoom.capacidad,
+      servicios_incluidos: updatedRoom.servicios_incluidos,
+    }
   })
 })
 
-// Eliminar habitación (solo admin) - Cambiar estado a Mantenimiento
+// Eliminar habitación (solo admin) - ELIMINACIÓN REAL
 export const deleteRoom = asyncHandler(async (req, res) => {
   const { id } = req.params
+
+  console.log('🔄 Deleting room:', id)
+  console.log('👤 User deleting room:', req.user)
 
   // Verificar que la habitación existe
   const existingRoom = await executeQuery("SELECT id_habitacion FROM Habitacion WHERE id_habitacion = ?", [id])
@@ -224,12 +300,24 @@ export const deleteRoom = asyncHandler(async (req, res) => {
     })
   }
 
-  // Cambiar estado a Mantenimiento en lugar de eliminar
-  await executeQuery("UPDATE Habitacion SET estado_habitacion = 'Mantenimiento' WHERE id_habitacion = ?", [id])
+  // ELIMINACIÓN REAL - Primero eliminar detalles, luego la habitación
+  try {
+    // Eliminar detalles primero
+    await executeQuery('DELETE FROM detalles_habitacion WHERE id_habitacion = ?', [id])
+    
+    // Eliminar la habitación
+    await executeQuery('DELETE FROM Habitacion WHERE id_habitacion = ?', [id])
 
-  res.json({
-    message: "Habitación puesta en mantenimiento exitosamente",
-  })
+    console.log('✅ Room deleted successfully from database')
+
+    res.json({
+      success: true,
+      message: "Habitación eliminada exitosamente de la base de datos",
+    })
+  } catch (error) {
+    console.error('❌ Error deleting room:', error)
+    throw new Error("Error al eliminar la habitación de la base de datos")
+  }
 })
 
 // Verificar disponibilidad
@@ -269,12 +357,13 @@ export const checkAvailability = asyncHandler(async (req, res) => {
   )
 
   res.json({
+    success: true,
     available_rooms: availableRooms.map((room) => ({
-      id: room.id_habitacion,
-      numero: room.numero_habitacion,
-      tipo: room.tipo_habitacion,
+      id_habitacion: room.id_habitacion,
+      numero_habitacion: room.numero_habitacion,
+      tipo_habitacion: room.tipo_habitacion,
       precio: room.precio,
-      estado: room.estado_habitacion,
+      estado_habitacion: room.estado_habitacion,
       descripcion: room.descripcion,
       capacidad: room.capacidad,
       servicios_incluidos: room.servicios_incluidos,
@@ -331,12 +420,13 @@ export const getRoomAvailability = asyncHandler(async (req, res) => {
   )
 
   res.json({
+    success: true,
     available_rooms: availableRooms.map((room) => ({
-      id: room.id_habitacion,
-      numero: room.numero_habitacion,
-      tipo: room.tipo_habitacion,
+      id_habitacion: room.id_habitacion,
+      numero_habitacion: room.numero_habitacion,
+      tipo_habitacion: room.tipo_habitacion,
       precio: room.precio,
-      estado: room.estado_habitacion,
+      estado_habitacion: room.estado_habitacion,
       descripcion: room.descripcion,
       capacidad: room.capacidad,
       servicios_incluidos: room.servicios_incluidos,

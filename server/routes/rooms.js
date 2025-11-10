@@ -6,22 +6,22 @@ import {
   updateRoom,
   deleteRoom,
   checkAvailability,
-  getRoomAvailability // ← AGREGAR ESTA IMPORTACIÓN
+  getRoomAvailability
 } from "../controllers/roomController.js"
-import { authorizeRoles } from "../middleware/auth.js"
+import { authenticateToken, authorizeRoles } from "../middleware/auth.js"
 import { validateRoom, validateId, validateSearch } from "../middleware/validation.js"
 
 const router = express.Router()
 
-// Rutas públicas (disponibles para todos los usuarios autenticados)
+// 🔓 RUTAS PÚBLICAS (SIN AUTENTICACIÓN - para que los clientes puedan ver habitaciones)
 router.get("/", validateSearch, getRooms)
 router.get("/availability", checkAvailability)
-router.get("/availability/new", getRoomAvailability) // ← AGREGAR ESTA RUTA NUEVA
+router.get("/availability/new", getRoomAvailability)
 router.get("/:id", validateId, getRoomById)
 
-// Rutas solo para administradores
-router.post("/", authorizeRoles("admin"), validateRoom, createRoom)
-router.put("/:id", authorizeRoles("admin"), validateId, validateRoom, updateRoom)
-router.delete("/:id", authorizeRoles("admin"), validateId, deleteRoom)
+// 🔐 RUTAS PROTEGIDAS SOLO PARA EMPLEADOS/ADMIN (CON AUTENTICACIÓN)
+router.post("/", authenticateToken, authorizeRoles("admin", "empleado"), validateRoom, createRoom)
+router.put("/:id", authenticateToken, authorizeRoles("admin", "empleado"), validateId, validateRoom, updateRoom)
+router.delete("/:id", authenticateToken, authorizeRoles("admin", "empleado"), validateId, deleteRoom)
 
 export default router

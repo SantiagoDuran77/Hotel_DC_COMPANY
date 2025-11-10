@@ -1,7 +1,7 @@
+// components/auth/login-form.tsx
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,7 +16,6 @@ export default function LoginForm() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -30,9 +29,14 @@ export default function LoginForm() {
       console.log('👤 User returned from login:', user)
       
       if (user) {
+        // Pequeña pausa para asegurar que localStorage esté actualizado
+        await new Promise(resolve => setTimeout(resolve, 200))
+        
         const redirectPath = authUtils.getDashboardRoute(user)
         console.log('🔄 Redirecting to:', redirectPath)
-        router.push(redirectPath)
+        
+        // Forzar la redirección completa
+        window.location.href = redirectPath
       } else {
         console.log('❌ No user returned')
         setError("Credenciales incorrectas. Verifica tu email y contraseña.")
@@ -63,6 +67,7 @@ export default function LoginForm() {
       icon: Shield,
       color: "text-red-600",
       description: "Acceso completo al sistema",
+      expectedRoute: "/admin"
     },
     {
       role: "Recepción", 
@@ -70,6 +75,7 @@ export default function LoginForm() {
       icon: Building,
       color: "text-blue-600",
       description: "Gestión de reservas y check-in/out",
+      expectedRoute: "/admin"
     },
     {
       role: "Limpieza",
@@ -77,6 +83,7 @@ export default function LoginForm() {
       icon: UserCheck,
       color: "text-green-600",
       description: "Servicios y mantenimiento",
+      expectedRoute: "/admin"
     },
     {
       role: "Cliente Ejemplo",
@@ -84,6 +91,7 @@ export default function LoginForm() {
       icon: User,
       color: "text-purple-600",
       description: "Cliente frecuente del hotel",
+      expectedRoute: "/dashboard"
     },
   ]
 
@@ -150,7 +158,14 @@ export default function LoginForm() {
                 )}
 
                 <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Iniciando sesión..." : "Iniciar Sesión"}
+                  {isLoading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Iniciando sesión...
+                    </>
+                  ) : (
+                    "Iniciar Sesión"
+                  )}
                 </Button>
               </form>
             </CardContent>
@@ -170,15 +185,18 @@ export default function LoginForm() {
                     <Button
                       key={account.email}
                       variant="outline"
-                      className="w-full justify-start h-auto p-4 bg-transparent"
+                      className="w-full justify-start h-auto p-4 bg-transparent hover:bg-gray-50"
                       onClick={() => quickLogin(account.email, account.role)}
                     >
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-3 w-full">
                         <IconComponent className={`h-5 w-5 ${account.color}`} />
-                        <div className="text-left">
-                          <div className="font-medium">{account.role}</div>
-                          <div className="text-sm text-gray-500">{account.email}</div>
-                          <div className="text-xs text-gray-400">{account.description}</div>
+                        <div className="text-left flex-1">
+                          <div className="font-medium text-gray-900">{account.role}</div>
+                          <div className="text-sm text-gray-600">{account.email}</div>
+                          <div className="text-xs text-gray-500 mt-1">{account.description}</div>
+                          <div className="text-xs text-blue-600 font-medium mt-1">
+                            → Ir a {account.expectedRoute}
+                          </div>
                         </div>
                       </div>
                     </Button>
@@ -198,9 +216,16 @@ export default function LoginForm() {
               <div className="mt-4 text-center">
                 <p className="text-xs text-gray-500">
                   ¿No tienes cuenta?{" "}
-                  <a href="/auth/register" className="text-primary hover:underline">
+                  <a href="/auth/register" className="text-primary hover:underline font-medium">
                     Regístrate aquí
                   </a>
+                </p>
+              </div>
+
+              {/* Debug info */}
+              <div className="mt-4 p-3 bg-gray-100 rounded-lg">
+                <p className="text-xs text-gray-600 text-center">
+                  <strong>Debug:</strong> Revisa la consola para ver la estructura del usuario
                 </p>
               </div>
             </CardContent>

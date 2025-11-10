@@ -1,6 +1,7 @@
+// components/admin/admin-rooms-table.tsx
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,94 +24,68 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
-import { Edit, MoreHorizontal, Trash2, Eye } from "lucide-react"
-import * as authUtils from "@/lib/auth"
+import { Edit, MoreHorizontal, Trash2, Eye, Loader2, PlusCircle } from "lucide-react"
+import { authUtils } from "@/lib/utils/authUtils"
+import { type Room, type DatabaseRoom } from "@/lib/api"
 
-export function AdminRoomsTable() {
+interface AdminRoomsTableProps {
+  rooms: Room[]
+  isLoading?: boolean
+  onUpdateRoom?: (id: string, roomData: Partial<DatabaseRoom>) => Promise<void>
+  onDeleteRoom?: (id: string) => Promise<void>
+  onCreateRoom?: (roomData: Omit<DatabaseRoom, 'id_habitacion'>) => Promise<Room>
+  onReload?: () => void
+  isAdmin?: boolean
+}
+
+export function AdminRoomsTable({ 
+  rooms: externalRooms, 
+  isLoading = false,
+  onUpdateRoom,
+  onDeleteRoom,
+  onCreateRoom,
+  onReload,
+  isAdmin = false
+}: AdminRoomsTableProps) {
   const { toast } = useToast()
-  const [rooms, setRooms] = useState([
-    {
-      id: "r1",
-      number: "101",
-      floor: 1,
-      type: "standard",
-      capacity: 2,
-      price: 120,
-      available: true,
-      status: "clean",
-      features: ["TV", "WiFi", "Aire acondicionado"],
-      image: "/placeholder.svg?height=100&width=200",
-    },
-    {
-      id: "r2",
-      number: "102",
-      floor: 1,
-      type: "standard",
-      capacity: 2,
-      price: 120,
-      available: true,
-      status: "clean",
-      features: ["TV", "WiFi", "Aire acondicionado"],
-      image: "/placeholder.svg?height=100&width=200",
-    },
-    {
-      id: "r3",
-      number: "201",
-      floor: 2,
-      type: "suite",
-      capacity: 4,
-      price: 250,
-      available: true,
-      status: "clean",
-      features: ["TV", "WiFi", "Aire acondicionado", "Minibar", "Jacuzzi"],
-      image: "/placeholder.svg?height=100&width=200",
-    },
-    {
-      id: "r4",
-      number: "202",
-      floor: 2,
-      type: "deluxe",
-      capacity: 3,
-      price: 180,
-      available: false,
-      status: "maintenance",
-      features: ["TV", "WiFi", "Aire acondicionado", "Minibar"],
-      image: "/placeholder.svg?height=100&width=200",
-    },
-    {
-      id: "r5",
-      number: "301",
-      floor: 3,
-      type: "presidential",
-      capacity: 6,
-      price: 500,
-      available: true,
-      status: "clean",
-      features: ["TV", "WiFi", "Aire acondicionado", "Minibar", "Jacuzzi", "Terraza"],
-      image: "/placeholder.svg?height=100&width=200",
-    },
-  ])
-
-  const [selectedRoom, setSelectedRoom] = useState(null)
+  const [internalRooms, setInternalRooms] = useState<Room[]>(externalRooms)
+  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showAddDialog, setShowAddDialog] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
   const [newRoom, setNewRoom] = useState({
-    number: "",
-    floor: 1,
-    type: "standard",
-    capacity: 2,
-    price: 120,
-    available: true,
-    status: "clean",
-    features: ["TV", "WiFi", "Aire acondicionado"],
-    image: "/placeholder.svg?height=100&width=200",
+    numero_habitacion: 0,
+    tipo_habitacion: "Sencilla" as 'Sencilla' | 'Doble' | 'Suite',
+    precio: 150000,
+    estado_habitacion: "Disponible" as 'Disponible' | 'Ocupada' | 'Mantenimiento',
+    capacidad: 2,
+    descripcion: "",
+    servicios_incluidos: "WiFi, TV, Aire acondicionado"
   })
 
-  const currentUser = authUtils.getCurrentUser()
-  const isAdmin = authUtils.isAdmin(currentUser)
+  // Sincronizar con las props externas
+  useEffect(() => {
+    setInternalRooms(externalRooms)
+  }, [externalRooms])
 
-  const handleToggleAvailability = (roomId) => {
+  // Escuchar evento para abrir modal de agregar
+  useEffect(() => {
+    const handleOpenAddModal = () => {
+      if (isAdmin) {
+        setShowAddDialog(true)
+      }
+    }
+
+    window.addEventListener('openAddRoomModal', handleOpenAddModal)
+    return () => {
+      window.removeEventListener('openAddRoomModal', handleOpenAddModal)
+    }
+  }, [isAdmin])
+
+  const currentUser = authUtils.getCurrentUser()
+
+  const handleToggleAvailability = async (roomId: string, currentEstado: string) => {
     if (!isAdmin) {
       toast({
         title: "Permiso denegado",
@@ -120,200 +95,219 @@ export function AdminRoomsTable() {
       return
     }
 
-    setRooms(
-      rooms.map((room) => {
-        if (room.id === roomId) {
-          const newAvailability = !room.available
-          toast({
-            title: "Disponibilidad actualizada",
-            description: `Habitación ${room.number} ${newAvailability ? "disponible" : "no disponible"}`,
-          })
-          return { ...room, available: newAvailability }
-        }
-        return room
-      }),
-    )
-  }
+    try {
+      setIsProcessing(true)
+      const newEstado = currentEstado === 'Disponible' ? 'Ocupada' : 'Disponible'
+      
+      if (onUpdateRoom) {
+        await onUpdateRoom(roomId, { estado_habitacion: newEstado })
+      }
 
-  const handleDeleteRoom = () => {
-    if (!isAdmin) {
       toast({
-        title: "Permiso denegado",
-        description: "Solo los administradores pueden eliminar habitaciones",
+        title: "Disponibilidad actualizada",
+        description: `Habitación ${roomId} ${newEstado === 'Disponible' ? "disponible" : "no disponible"}`,
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar la disponibilidad",
         variant: "destructive",
       })
-      return
+    } finally {
+      setIsProcessing(false)
     }
-
-    setRooms(rooms.filter((room) => room.id !== selectedRoom.id))
-    toast({
-      title: "Habitación eliminada",
-      description: `La habitación ${selectedRoom.number} ha sido eliminada correctamente`,
-    })
-    setShowDeleteDialog(false)
   }
 
-  const handleEditRoom = (updatedRoom) => {
-    if (!isAdmin) {
+  const handleDeleteRoom = async () => {
+    if (!isAdmin || !selectedRoom) return
+
+    try {
+      setIsProcessing(true)
+      
+      if (onDeleteRoom) {
+        await onDeleteRoom(selectedRoom.id)
+      }
+
       toast({
-        title: "Permiso denegado",
-        description: "Solo los administradores pueden editar habitaciones",
+        title: "Habitación eliminada",
+        description: `La habitación ${selectedRoom.number} ha sido eliminada correctamente`,
+      })
+      setShowDeleteDialog(false)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "No se pudo eliminar la habitación",
         variant: "destructive",
       })
-      return
+    } finally {
+      setIsProcessing(false)
     }
-
-    setRooms(
-      rooms.map((room) => {
-        if (room.id === selectedRoom.id) {
-          return { ...room, ...updatedRoom }
-        }
-        return room
-      }),
-    )
-    toast({
-      title: "Habitación actualizada",
-      description: `La habitación ${selectedRoom.number} ha sido actualizada correctamente`,
-    })
-    setShowEditDialog(false)
   }
 
-  const handleAddRoom = () => {
-    if (!isAdmin) {
+  const handleEditRoom = async () => {
+    if (!isAdmin || !selectedRoom) return
+
+    try {
+      setIsProcessing(true)
+      const updatedRoom = {
+        numero_habitacion: parseInt(selectedRoom.number),
+        tipo_habitacion: selectedRoom.tipo,
+        precio: selectedRoom.precio,
+        estado_habitacion: selectedRoom.estado,
+        capacidad: selectedRoom.capacidad,
+        descripcion: selectedRoom.descripcion,
+        servicios_incluidos: selectedRoom.servicios_incluidos
+      }
+
+      if (onUpdateRoom) {
+        await onUpdateRoom(selectedRoom.id, updatedRoom)
+      }
+
       toast({
-        title: "Permiso denegado",
-        description: "Solo los administradores pueden añadir habitaciones",
+        title: "Habitación actualizada",
+        description: `La habitación ${selectedRoom.number} ha sido actualizada correctamente`,
+      })
+      setShowEditDialog(false)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar la habitación",
         variant: "destructive",
       })
-      return
+    } finally {
+      setIsProcessing(false)
     }
-
-    const newId = `r${rooms.length + 1}`
-    setRooms([...rooms, { ...newRoom, id: newId }])
-    toast({
-      title: "Habitación añadida",
-      description: `La habitación ${newRoom.number} ha sido añadida correctamente`,
-    })
-    setShowAddDialog(false)
-    setNewRoom({
-      number: "",
-      floor: 1,
-      type: "standard",
-      capacity: 2,
-      price: 120,
-      available: true,
-      status: "clean",
-      features: ["TV", "WiFi", "Aire acondicionado"],
-      image: "/placeholder.svg?height=100&width=200",
-    })
   }
 
-  const openDeleteDialog = (room) => {
-    setSelectedRoom(room)
-    setShowDeleteDialog(true)
+  const handleAddRoom = async () => {
+    if (!isAdmin || !onCreateRoom) return
+
+    try {
+      setIsProcessing(true)
+
+      await onCreateRoom(newRoom)
+
+      toast({
+        title: "Habitación añadida",
+        description: `La habitación ${newRoom.numero_habitacion} ha sido añadida correctamente`,
+      })
+      setShowAddDialog(false)
+      setNewRoom({
+        numero_habitacion: 0,
+        tipo_habitacion: "Sencilla",
+        precio: 150000,
+        estado_habitacion: "Disponible",
+        capacidad: 2,
+        descripcion: "",
+        servicios_incluidos: "WiFi, TV, Aire acondicionado"
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "No se pudo añadir la habitación",
+        variant: "destructive",
+      })
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
-  const openEditDialog = (room) => {
-    setSelectedRoom(room)
-    setShowEditDialog(true)
-  }
-
-  const getRoomTypeLabel = (type) => {
+  const getRoomTypeLabel = (type: string) => {
     switch (type) {
-      case "standard":
-        return "Estándar"
-      case "deluxe":
-        return "Deluxe"
-      case "suite":
+      case "Sencilla":
+        return "Sencilla"
+      case "Doble":
+        return "Doble"
+      case "Suite":
         return "Suite"
-      case "presidential":
-        return "Presidencial"
       default:
         return type
     }
   }
 
-  const getRoomStatusLabel = (status) => {
+  const getRoomStatusLabel = (status: string) => {
     switch (status) {
-      case "clean":
-        return "Limpia"
-      case "dirty":
-        return "Sucia"
-      case "maintenance":
+      case "Disponible":
+        return "Disponible"
+      case "Ocupada":
+        return "Ocupada"
+      case "Mantenimiento":
         return "Mantenimiento"
       default:
         return status
     }
   }
 
+  const getStatusVariant = (status: string) => {
+    switch (status) {
+      case "Disponible":
+        return "default"
+      case "Ocupada":
+        return "secondary"
+      case "Mantenimiento":
+        return "destructive"
+      default:
+        return "outline"
+    }
+  }
+
+  const formatPrice = (price: number) => {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0
+    }).format(price)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center p-8">
+        <Loader2 className="h-8 w-8 animate-spin" />
+        <span className="ml-2">Cargando habitaciones...</span>
+      </div>
+    )
+  }
+
   return (
     <>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold">Habitaciones</h2>
-        <Button onClick={() => setShowAddDialog(true)} disabled={!isAdmin}>
-          Añadir Habitación
-        </Button>
-      </div>
-
       <div className="rounded-md border">
         <div className="relative w-full overflow-auto">
           <table className="w-full caption-bottom text-sm">
             <thead>
               <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-                <th className="h-12 px-4 text-left align-middle font-medium">Habitación</th>
+                <th className="h-12 px-4 text-left align-middle font-medium">Número</th>
                 <th className="h-12 px-4 text-left align-middle font-medium">Tipo</th>
                 <th className="h-12 px-4 text-left align-middle font-medium">Capacidad</th>
-                <th className="h-12 px-4 text-left align-middle font-medium">Precio</th>
+                <th className="h-12 px-4 text-left align-middle font-medium">Precio/Noche</th>
                 <th className="h-12 px-4 text-left align-middle font-medium">Estado</th>
                 <th className="h-12 px-4 text-left align-middle font-medium">Disponible</th>
                 <th className="h-12 px-4 text-left align-middle font-medium">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {rooms.map((room) => (
+              {internalRooms.map((room) => (
                 <tr
                   key={room.id}
                   className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
                 >
                   <td className="p-4 align-middle">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={room.image || "/placeholder.svg"}
-                        alt={`Habitación ${room.number}`}
-                        className="h-10 w-16 rounded object-cover"
-                      />
-                      <div>
-                        <div className="font-medium">#{room.number}</div>
-                        <div className="text-xs text-muted-foreground">Piso {room.floor}</div>
-                      </div>
-                    </div>
+                    <div className="font-medium">#{room.number}</div>
                   </td>
                   <td className="p-4 align-middle">
-                    <Badge variant="outline">{getRoomTypeLabel(room.type)}</Badge>
+                    <Badge variant="outline">{getRoomTypeLabel(room.tipo)}</Badge>
                   </td>
-                  <td className="p-4 align-middle">{room.capacity} personas</td>
-                  <td className="p-4 align-middle">${room.price}/noche</td>
+                  <td className="p-4 align-middle">{room.capacidad} personas</td>
+                  <td className="p-4 align-middle">{formatPrice(room.precio)}</td>
                   <td className="p-4 align-middle">
-                    <Badge
-                      variant={
-                        room.status === "clean" ? "default" : room.status === "dirty" ? "secondary" : "destructive"
-                      }
-                      className={
-                        room.status === "clean"
-                          ? "bg-green-50 text-green-700 hover:bg-green-50 hover:text-green-700"
-                          : room.status === "dirty"
-                            ? "bg-yellow-50 text-yellow-700 hover:bg-yellow-50 hover:text-yellow-700"
-                            : "bg-red-50 text-red-700 hover:bg-red-50 hover:text-red-700"
-                      }
-                    >
-                      {getRoomStatusLabel(room.status)}
+                    <Badge variant={getStatusVariant(room.estado)}>
+                      {getRoomStatusLabel(room.estado)}
                     </Badge>
                   </td>
                   <td className="p-4 align-middle">
                     <Switch
-                      checked={room.available}
-                      onCheckedChange={() => handleToggleAvailability(room.id)}
-                      disabled={!isAdmin}
+                      checked={room.estado === 'Disponible'}
+                      onCheckedChange={() => handleToggleAvailability(room.id, room.estado)}
+                      disabled={!isAdmin || isProcessing}
                     />
                   </td>
                   <td className="p-4 align-middle">
@@ -330,14 +324,23 @@ export function AdminRoomsTable() {
                           <Eye className="mr-2 h-4 w-4" />
                           Ver detalles
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openEditDialog(room)} disabled={!isAdmin}>
+                        <DropdownMenuItem 
+                          onClick={() => {
+                            setSelectedRoom(room)
+                            setShowEditDialog(true)
+                          }} 
+                          disabled={!isAdmin}
+                        >
                           <Edit className="mr-2 h-4 w-4" />
                           Editar habitación
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           className="text-red-600"
-                          onClick={() => openDeleteDialog(room)}
+                          onClick={() => {
+                            setSelectedRoom(room)
+                            setShowDeleteDialog(true)
+                          }}
                           disabled={!isAdmin}
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
@@ -353,7 +356,7 @@ export function AdminRoomsTable() {
         </div>
       </div>
 
-      {/* Diálogo de confirmación para eliminar */}
+      {/* Diálogos */}
       {selectedRoom && (
         <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
           <DialogContent>
@@ -364,11 +367,11 @@ export function AdminRoomsTable() {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+              <Button variant="outline" onClick={() => setShowDeleteDialog(false)} disabled={isProcessing}>
                 Cancelar
               </Button>
-              <Button variant="destructive" onClick={handleDeleteRoom}>
-                Eliminar
+              <Button variant="destructive" onClick={handleDeleteRoom} disabled={isProcessing}>
+                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Eliminar"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -380,7 +383,7 @@ export function AdminRoomsTable() {
         <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>Editar habitación</DialogTitle>
+              <DialogTitle>Editar habitación #{selectedRoom.number}</DialogTitle>
               <DialogDescription>
                 Modifique los datos de la habitación y haga clic en guardar cuando termine.
               </DialogDescription>
@@ -390,13 +393,12 @@ export function AdminRoomsTable() {
                 <Label htmlFor="room-number" className="text-right">
                   Número
                 </Label>
-                <Input id="room-number" defaultValue={selectedRoom.number} className="col-span-3" />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="room-floor" className="text-right">
-                  Piso
-                </Label>
-                <Input id="room-floor" type="number" defaultValue={selectedRoom.floor} className="col-span-3" />
+                <Input 
+                  id="room-number" 
+                  value={selectedRoom.number}
+                  onChange={(e) => setSelectedRoom({...selectedRoom, number: e.target.value})}
+                  className="col-span-3" 
+                />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="room-type" className="text-right">
@@ -404,26 +406,38 @@ export function AdminRoomsTable() {
                 </Label>
                 <select
                   id="room-type"
-                  defaultValue={selectedRoom.type}
+                  value={selectedRoom.tipo}
+                  onChange={(e) => setSelectedRoom({...selectedRoom, tipo: e.target.value as any})}
                   className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
-                  <option value="standard">Estándar</option>
-                  <option value="deluxe">Deluxe</option>
-                  <option value="suite">Suite</option>
-                  <option value="presidential">Presidencial</option>
+                  <option value="Sencilla">Sencilla</option>
+                  <option value="Doble">Doble</option>
+                  <option value="Suite">Suite</option>
                 </select>
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="room-capacity" className="text-right">
                   Capacidad
                 </Label>
-                <Input id="room-capacity" type="number" defaultValue={selectedRoom.capacity} className="col-span-3" />
+                <Input 
+                  id="room-capacity" 
+                  type="number" 
+                  value={selectedRoom.capacidad}
+                  onChange={(e) => setSelectedRoom({...selectedRoom, capacidad: parseInt(e.target.value)})}
+                  className="col-span-3" 
+                />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="room-price" className="text-right">
                   Precio
                 </Label>
-                <Input id="room-price" type="number" defaultValue={selectedRoom.price} className="col-span-3" />
+                <Input 
+                  id="room-price" 
+                  type="number" 
+                  value={selectedRoom.precio}
+                  onChange={(e) => setSelectedRoom({...selectedRoom, precio: parseFloat(e.target.value)})}
+                  className="col-span-3" 
+                />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="room-status" className="text-right">
@@ -431,40 +445,22 @@ export function AdminRoomsTable() {
                 </Label>
                 <select
                   id="room-status"
-                  defaultValue={selectedRoom.status}
+                  value={selectedRoom.estado}
+                  onChange={(e) => setSelectedRoom({...selectedRoom, estado: e.target.value as any})}
                   className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
-                  <option value="clean">Limpia</option>
-                  <option value="dirty">Sucia</option>
-                  <option value="maintenance">Mantenimiento</option>
+                  <option value="Disponible">Disponible</option>
+                  <option value="Ocupada">Ocupada</option>
+                  <option value="Mantenimiento">Mantenimiento</option>
                 </select>
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">Disponible</Label>
-                <div className="col-span-3">
-                  <Switch defaultChecked={selectedRoom.available} />
-                </div>
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+              <Button variant="outline" onClick={() => setShowEditDialog(false)} disabled={isProcessing}>
                 Cancelar
               </Button>
-              <Button
-                onClick={() => {
-                  const updatedRoom = {
-                    number: document.getElementById("room-number").value,
-                    floor: Number.parseInt(document.getElementById("room-floor").value),
-                    type: document.getElementById("room-type").value,
-                    capacity: Number.parseInt(document.getElementById("room-capacity").value),
-                    price: Number.parseFloat(document.getElementById("room-price").value),
-                    status: document.getElementById("room-status").value,
-                    available: document.querySelector('button[role="switch"]').getAttribute("data-state") === "checked",
-                  }
-                  handleEditRoom(updatedRoom)
-                }}
-              >
-                Guardar cambios
+              <Button onClick={handleEditRoom} disabled={isProcessing}>
+                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Guardar cambios"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -487,21 +483,11 @@ export function AdminRoomsTable() {
               </Label>
               <Input
                 id="new-room-number"
-                value={newRoom.number}
-                onChange={(e) => setNewRoom({ ...newRoom, number: e.target.value })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="new-room-floor" className="text-right">
-                Piso
-              </Label>
-              <Input
-                id="new-room-floor"
                 type="number"
-                value={newRoom.floor}
-                onChange={(e) => setNewRoom({ ...newRoom, floor: Number.parseInt(e.target.value) })}
+                value={newRoom.numero_habitacion || ''}
+                onChange={(e) => setNewRoom({ ...newRoom, numero_habitacion: parseInt(e.target.value) || 0 })}
                 className="col-span-3"
+                placeholder="101"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -510,14 +496,13 @@ export function AdminRoomsTable() {
               </Label>
               <select
                 id="new-room-type"
-                value={newRoom.type}
-                onChange={(e) => setNewRoom({ ...newRoom, type: e.target.value })}
+                value={newRoom.tipo_habitacion}
+                onChange={(e) => setNewRoom({ ...newRoom, tipo_habitacion: e.target.value as any })}
                 className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                <option value="standard">Estándar</option>
-                <option value="deluxe">Deluxe</option>
-                <option value="suite">Suite</option>
-                <option value="presidential">Presidencial</option>
+                <option value="Sencilla">Sencilla</option>
+                <option value="Doble">Doble</option>
+                <option value="Suite">Suite</option>
               </select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -527,8 +512,8 @@ export function AdminRoomsTable() {
               <Input
                 id="new-room-capacity"
                 type="number"
-                value={newRoom.capacity}
-                onChange={(e) => setNewRoom({ ...newRoom, capacity: Number.parseInt(e.target.value) })}
+                value={newRoom.capacidad}
+                onChange={(e) => setNewRoom({ ...newRoom, capacidad: parseInt(e.target.value) || 2 })}
                 className="col-span-3"
               />
             </div>
@@ -539,8 +524,8 @@ export function AdminRoomsTable() {
               <Input
                 id="new-room-price"
                 type="number"
-                value={newRoom.price}
-                onChange={(e) => setNewRoom({ ...newRoom, price: Number.parseFloat(e.target.value) })}
+                value={newRoom.precio}
+                onChange={(e) => setNewRoom({ ...newRoom, precio: parseFloat(e.target.value) || 150000 })}
                 className="col-span-3"
               />
             </div>
@@ -550,30 +535,23 @@ export function AdminRoomsTable() {
               </Label>
               <select
                 id="new-room-status"
-                value={newRoom.status}
-                onChange={(e) => setNewRoom({ ...newRoom, status: e.target.value })}
+                value={newRoom.estado_habitacion}
+                onChange={(e) => setNewRoom({ ...newRoom, estado_habitacion: e.target.value as any })}
                 className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                <option value="clean">Limpia</option>
-                <option value="dirty">Sucia</option>
-                <option value="maintenance">Mantenimiento</option>
+                <option value="Disponible">Disponible</option>
+                <option value="Ocupada">Ocupada</option>
+                <option value="Mantenimiento">Mantenimiento</option>
               </select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label className="text-right">Disponible</Label>
-              <div className="col-span-3">
-                <Switch
-                  checked={newRoom.available}
-                  onCheckedChange={(checked) => setNewRoom({ ...newRoom, available: checked })}
-                />
-              </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)} disabled={isProcessing}>
               Cancelar
             </Button>
-            <Button onClick={handleAddRoom}>Añadir habitación</Button>
+            <Button onClick={handleAddRoom} disabled={isProcessing}>
+              {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Añadir habitación"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
