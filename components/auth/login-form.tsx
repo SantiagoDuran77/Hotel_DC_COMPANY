@@ -7,8 +7,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Eye, EyeOff, Shield, Building, UserCheck, User } from "lucide-react"
+import { Eye, EyeOff, Shield, Building, UserCheck, User, Mail } from "lucide-react"
 import { authUtils } from "@/lib/utils/authUtils"
+import Link from "next/link"
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 export default function LoginForm() {
   const [email, setEmail] = useState("")
@@ -16,6 +19,9 @@ export default function LoginForm() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [resetEmail, setResetEmail] = useState("")
+  const [resetMessage, setResetMessage] = useState("")
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -44,6 +50,48 @@ export default function LoginForm() {
     } catch (err: any) {
       console.error('💥 Login error:', err)
       setError(err.message || "Error al iniciar sesión. Inténtalo de nuevo.")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setResetMessage("")
+    setError("")
+
+    if (!resetEmail) {
+      setError("Por favor ingresa tu correo electrónico")
+      return
+    }
+
+    if (!/\S+@\S+\.\S+/.test(resetEmail)) {
+      setError("Por favor ingresa un correo electrónico válido")
+      return
+    }
+
+    setIsLoading(true)
+
+    try {
+      const response = await fetch(`${API_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: resetEmail }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Error al enviar el correo de recuperación')
+      }
+
+      setResetMessage(data.message)
+      setResetEmail("")
+      
+    } catch (err: any) {
+      setError(err.message || "Error al enviar el correo de recuperación. Inténtalo de nuevo.")
     } finally {
       setIsLoading(false)
     }
@@ -108,66 +156,182 @@ export default function LoginForm() {
           <Card>
             <CardHeader>
               <CardTitle>Acceso al Sistema</CardTitle>
-              <CardDescription>Ingresa tus credenciales para acceder</CardDescription>
+              <CardDescription>
+                {showForgotPassword 
+                  ? "Recupera tu contraseña" 
+                  : "Ingresa tus credenciales para acceder"
+                }
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div>
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="tu@email.com"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="password">Contraseña</Label>
-                  <div className="relative">
+              {!showForgotPassword ? (
+                // Formulario de Login Normal
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <div>
+                    <Label htmlFor="email">Email</Label>
                     <Input
-                      id="password"
-                      name="password"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="current-password"
+                      id="email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
                       required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Primeros 4 caracteres de tu contraseña"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="tu@email.com"
                     />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="password">Contraseña</Label>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        name="password"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Primeros 4 caracteres de tu contraseña"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {error && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Iniciando sesión...
+                      </>
+                    ) : (
+                      "Iniciar Sesión"
+                    )}
+                  </Button>
+
+                  {/* Enlace de olvidé contraseña ABAJO del botón */}
+                  <div className="text-center pt-2">
                     <Button
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                      onClick={() => setShowPassword(!showPassword)}
+                      variant="link"
+                      className="text-blue-600 hover:text-blue-800 font-normal"
+                      onClick={() => setShowForgotPassword(true)}
                     >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      ¿Olvidaste tu contraseña?
                     </Button>
                   </div>
-                </div>
 
-                {error && (
-                  <Alert variant="destructive">
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                )}
+                  <div className="text-center border-t pt-4">
+                    <p className="text-sm text-gray-600">
+                      ¿No tienes cuenta?{" "}
+                      <Link href="/auth/register" className="text-blue-600 hover:underline font-medium">
+                        Regístrate aquí
+                      </Link>
+                    </p>
+                  </div>
+                </form>
+              ) : (
+                // Formulario de Recuperación de Contraseña
+                <form onSubmit={handleForgotPassword} className="space-y-6">
+                  <div className="text-center mb-4">
+                    <Mail className="h-12 w-12 text-blue-500 mx-auto mb-2" />
+                    <h3 className="text-lg font-semibold text-gray-900">Recuperar Contraseña</h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.
+                    </p>
+                  </div>
 
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Iniciando sesión...
-                    </>
-                  ) : (
-                    "Iniciar Sesión"
+                  <div>
+                    <Label htmlFor="resetEmail">Correo Electrónico</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                      <Input
+                        id="resetEmail"
+                        name="resetEmail"
+                        type="email"
+                        autoComplete="email"
+                        required
+                        value={resetEmail}
+                        onChange={(e) => setResetEmail(e.target.value)}
+                        placeholder="tu@email.com"
+                        className="pl-10"
+                      />
+                    </div>
+                  </div>
+
+                  {error && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
                   )}
-                </Button>
-              </form>
+
+                  {resetMessage && (
+                    <Alert className="bg-green-50 border-green-200">
+                      <AlertDescription className="text-green-800">
+                        {resetMessage}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  <div className="flex space-x-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => {
+                        setShowForgotPassword(false)
+                        setResetEmail("")
+                        setResetMessage("")
+                        setError("")
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button 
+                      type="submit" 
+                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Enviando...
+                        </>
+                      ) : (
+                        "Enviar Enlace"
+                      )}
+                    </Button>
+                  </div>
+
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600">
+                      ¿Recordaste tu contraseña?{" "}
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="p-0 h-auto text-blue-600 hover:text-blue-800 text-sm font-normal"
+                        onClick={() => setShowForgotPassword(false)}
+                      >
+                        Volver al login
+                      </Button>
+                    </p>
+                  </div>
+                </form>
+              )}
             </CardContent>
           </Card>
 
@@ -213,13 +377,17 @@ export default function LoginForm() {
                 </p>
               </div>
 
-              <div className="mt-4 text-center">
-                <p className="text-xs text-gray-500">
-                  ¿No tienes cuenta?{" "}
-                  <a href="/auth/register" className="text-primary hover:underline font-medium">
-                    Regístrate aquí
-                  </a>
-                </p>
+              {/* Información de recuperación */}
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start space-x-3">
+                  <Mail className="h-5 w-5 text-blue-500 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-blue-800">¿Problemas para acceder?</p>
+                    <p className="text-xs text-blue-600 mt-1">
+                      Si olvidaste tu contraseña, haz clic en "¿Olvidaste tu contraseña?" en el formulario de login.
+                    </p>
+                  </div>
+                </div>
               </div>
 
               {/* Debug info */}

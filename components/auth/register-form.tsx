@@ -15,6 +15,37 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Eye, EyeOff, Mail, Lock, User, Phone, MapPin, Building, ExternalLink } from "lucide-react"
 import { authUtils } from "@/lib/utils/authUtils"
 
+// Lista de países para el select
+const paises = [
+  "Afganistán", "Albania", "Alemania", "Andorra", "Angola", "Antigua y Barbuda", "Arabia Saudita", "Argelia", 
+  "Argentina", "Armenia", "Australia", "Austria", "Azerbaiyán", "Bahamas", "Bangladés", "Barbados", "Baréin", 
+  "Bélgica", "Belice", "Benín", "Bielorrusia", "Birmania", "Bolivia", "Bosnia y Herzegovina", "Botsuana", 
+  "Brasil", "Brunéi", "Bulgaria", "Burkina Faso", "Burundi", "Bután", "Cabo Verde", "Camboya", "Camerún", 
+  "Canadá", "Catar", "Chad", "Chile", "China", "Chipre", "Ciudad del Vaticano", "Colombia", "Comoras", 
+  "Corea del Norte", "Corea del Sur", "Costa de Marfil", "Costa Rica", "Croacia", "Cuba", "Dinamarca", 
+  "Dominica", "Ecuador", "Egipto", "El Salvador", "Emiratos Árabes Unidos", "Eritrea", "Eslovaquia", 
+  "Eslovenia", "España", "Estados Unidos", "Estonia", "Etiopía", "Filipinas", "Finlandia", "Fiyi", 
+  "Francia", "Gabón", "Gambia", "Georgia", "Ghana", "Granada", "Grecia", "Guatemala", "Guyana", 
+  "Guinea", "Guinea Ecuatorial", "Guinea-Bisáu", "Haití", "Honduras", "Hungría", "India", "Indonesia", 
+  "Irak", "Irán", "Irlanda", "Islandia", "Islas Marshall", "Islas Salomón", "Israel", "Italia", 
+  "Jamaica", "Japón", "Jordania", "Kazajistán", "Kenia", "Kirguistán", "Kiribati", "Kuwait", 
+  "Laos", "Lesoto", "Letonia", "Líbano", "Liberia", "Libia", "Liechtenstein", "Lituania", 
+  "Luxemburgo", "Madagascar", "Malasia", "Malaui", "Maldivas", "Malí", "Malta", "Marruecos", 
+  "Mauricio", "Mauritania", "México", "Micronesia", "Moldavia", "Mónaco", "Mongolia", 
+  "Montenegro", "Mozambique", "Namibia", "Nauru", "Nepal", "Nicaragua", "Níger", "Nigeria", 
+  "Noruega", "Nueva Zelanda", "Omán", "Países Bajos", "Pakistán", "Palaos", "Palestina", 
+  "Panamá", "Papúa Nueva Guinea", "Paraguay", "Perú", "Polonia", "Portugal", "Reino Unido", 
+  "República Centroafricana", "República Checa", "República del Congo", "República Democrática del Congo", 
+  "República Dominicana", "República Sudafricana", "Ruanda", "Rumanía", "Rusia", "Samoa", 
+  "San Cristóbal y Nieves", "San Marino", "San Vicente y las Granadinas", "Santa Lucía", 
+  "Santo Tomé y Príncipe", "Senegal", "Serbia", "Seychelles", "Sierra Leona", "Singapur", 
+  "Siria", "Somalia", "Sri Lanka", "Suazilandia", "Sudán", "Sudán del Sur", "Suecia", 
+  "Suiza", "Surinam", "Tailandia", "Tanzania", "Tayikistán", "Timor Oriental", "Togo", 
+  "Tonga", "Trinidad y Tobago", "Túnez", "Turkmenistán", "Turquía", "Tuvalu", "Ucrania", 
+  "Uganda", "Uruguay", "Uzbekistán", "Vanuatu", "Venezuela", "Vietnam", "Yemen", "Yibuti", 
+  "Zambia", "Zimbabue"
+].sort(); // Ordenar alfabéticamente
+
 export default function RegisterForm() {
   const [formData, setFormData] = useState({
     nombre: "",
@@ -67,7 +98,7 @@ export default function RegisterForm() {
     }
 
     if (!formData.nacionalidad.trim()) {
-      setError("Por favor ingresa tu nacionalidad")
+      setError("Por favor selecciona tu nacionalidad")
       setIsLoading(false)
       return
     }
@@ -117,7 +148,7 @@ export default function RegisterForm() {
     }
   }
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
@@ -308,21 +339,31 @@ export default function RegisterForm() {
                 </div>
               </div>
 
-              {/* Nacionalidad */}
+              {/* Nacionalidad - Ahora es un select */}
               <div className="space-y-2">
                 <Label htmlFor="nacionalidad">Nacionalidad</Label>
                 <div className="relative">
-                  <Building className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <Input
+                  <Building className="absolute left-3 top-3 h-4 w-4 text-gray-400 z-10" />
+                  <select
                     id="nacionalidad"
                     name="nacionalidad"
-                    type="text"
-                    placeholder="Ej: Colombiana"
                     value={formData.nacionalidad}
                     onChange={handleInputChange}
-                    className="pl-10"
+                    className="flex h-10 w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 appearance-none cursor-pointer"
                     required
-                  />
+                  >
+                    <option value="">Selecciona tu nacionalidad</option>
+                    {paises.map((pais) => (
+                      <option key={pais} value={pais}>
+                        {pais}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-3 top-3 pointer-events-none">
+                    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-400">
+                      <path d="M4.18179 6.18181C4.35753 6.00608 4.64245 6.00608 4.81819 6.18181L7.49999 8.86362L10.1818 6.18181C10.3575 6.00608 10.6424 6.00608 10.8182 6.18181C10.9939 6.35755 10.9939 6.64247 10.8182 6.81821L7.81819 9.81821C7.73379 9.9026 7.61934 9.95001 7.49999 9.95001C7.38064 9.95001 7.26618 9.9026 7.18179 9.81821L4.18179 6.81821C4.00605 6.64247 4.00605 6.35755 4.18179 6.18181Z" fill="currentColor" fillRule="evenodd" clipRule="evenodd"></path>
+                    </svg>
+                  </div>
                 </div>
               </div>
 
