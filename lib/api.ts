@@ -78,6 +78,30 @@ export interface User {
   hire_date?: string
 }
 
+// Interfaces para empleados
+export interface DatabaseEmployee {
+  id_empleado: number
+  nombre_empleado: string
+  apellido_empleado: string
+  correo_empleado: string
+  telefono_empleado: string
+  cargo_empleado: string
+  fecha_contratacion: string
+  estado_usuario?: string
+}
+
+export interface Employee {
+  id: string
+  nombre: string
+  apellido: string
+  email: string
+  telefono: string
+  cargo: string
+  fecha_contratacion: string
+  estado?: string
+  nombre_completo?: string
+}
+
 // Interfaces para reservas
 export interface DatabaseReservation {
   id_reserva: number
@@ -345,6 +369,204 @@ function cleanReservationData(data: any): any {
 
   console.log('✅ Final cleaned reservation data:', finalData)
   return finalData
+}
+
+// FUNCIONES PARA EMPLEADOS
+export async function getEmployees(): Promise<Employee[]> {
+  try {
+    console.log('📡 Fetching employees from:', `${API_BASE_URL}/employees`)
+    
+    const response = await fetch(`${API_BASE_URL}/employees`, {
+      headers: getAuthHeaders(),
+    })
+    
+    console.log('📡 Employees response status:', response.status)
+    
+    if (!response.ok) {
+      return handleResponseError(response)
+    }
+    
+    const data = await response.json()
+    console.log('✅ Employees data received:', data)
+    
+    // Mapear datos de la base de datos al formato del frontend
+    return (data.employees || []).map((emp: DatabaseEmployee) => ({
+      id: emp.id_empleado.toString(),
+      nombre: emp.nombre_empleado,
+      apellido: emp.apellido_empleado,
+      email: emp.correo_empleado,
+      telefono: emp.telefono_empleado || '',
+      cargo: emp.cargo_empleado,
+      fecha_contratacion: emp.fecha_contratacion,
+      estado: emp.estado_usuario || 'Activo',
+      nombre_completo: `${emp.nombre_empleado} ${emp.apellido_empleado}`
+    }))
+    
+  } catch (error) {
+    return handleApiError(error, 'getEmployees')
+  }
+}
+
+export async function getEmployeeById(id: string): Promise<Employee> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/employees/${id}`, {
+      headers: getAuthHeaders(),
+    })
+    
+    if (!response.ok) {
+      return handleResponseError(response)
+    }
+    
+    const data = await response.json()
+    const emp = data.employee
+    
+    return {
+      id: emp.id_empleado.toString(),
+      nombre: emp.nombre_empleado,
+      apellido: emp.apellido_empleado,
+      email: emp.correo_empleado,
+      telefono: emp.telefono_empleado || '',
+      cargo: emp.cargo_empleado,
+      fecha_contratacion: emp.fecha_contratacion,
+      estado: emp.estado_usuario || 'Activo',
+      nombre_completo: `${emp.nombre_empleado} ${emp.apellido_empleado}`
+    }
+  } catch (error) {
+    return handleApiError(error, 'getEmployeeById')
+  }
+}
+
+export async function createEmployee(employeeData: Omit<Employee, 'id' | 'nombre_completo'>): Promise<Employee> {
+  try {
+    if (!isCurrentUserAdmin()) {
+      throw new Error('No tienes permisos de administrador para crear empleados')
+    }
+
+    console.log('🔄 Attempting to create employee with data:', employeeData)
+    
+    const response = await fetch(`${API_BASE_URL}/employees`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        nombre_empleado: employeeData.nombre,
+        apellido_empleado: employeeData.apellido,
+        correo_empleado: employeeData.email,
+        telefono_empleado: employeeData.telefono,
+        cargo_empleado: employeeData.cargo,
+        fecha_contratacion: employeeData.fecha_contratacion,
+        contraseña: '1234' // Contraseña por defecto
+      }),
+    })
+
+    console.log('📡 Create employee response status:', response.status)
+
+    if (!response.ok) {
+      return handleResponseError(response)
+    }
+
+    const result = await response.json()
+    console.log('✅ Created employee result:', result)
+    
+    const emp = result.employee
+    return {
+      id: emp.id_empleado.toString(),
+      nombre: emp.nombre_empleado,
+      apellido: emp.apellido_empleado,
+      email: emp.correo_empleado,
+      telefono: emp.telefono_empleado || '',
+      cargo: emp.cargo_empleado,
+      fecha_contratacion: emp.fecha_contratacion,
+      estado: emp.estado_usuario || 'Activo',
+      nombre_completo: `${emp.nombre_empleado} ${emp.apellido_empleado}`
+    }
+    
+  } catch (error) {
+    return handleApiError(error, 'createEmployee')
+  }
+}
+
+export async function updateEmployee(id: string, employeeData: Partial<Employee>): Promise<Employee> {
+  try {
+    if (!isCurrentUserAdmin()) {
+      throw new Error('No tienes permisos de administrador para actualizar empleados')
+    }
+
+    console.log('🔄 Attempting to update employee:', id, employeeData)
+    
+    const response = await fetch(`${API_BASE_URL}/employees/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        nombre_empleado: employeeData.nombre,
+        apellido_empleado: employeeData.apellido,
+        telefono_empleado: employeeData.telefono,
+        cargo_empleado: employeeData.cargo,
+        fecha_contratacion: employeeData.fecha_contratacion
+      }),
+    })
+
+    console.log('📡 Update employee response status:', response.status)
+
+    if (!response.ok) {
+      return handleResponseError(response)
+    }
+
+    const result = await response.json()
+    console.log('✅ Update employee result:', result)
+    
+    // Obtener el empleado actualizado
+    return await getEmployeeById(id)
+    
+  } catch (error) {
+    return handleApiError(error, 'updateEmployee')
+  }
+}
+
+export async function deleteEmployee(id: string): Promise<void> {
+  try {
+    if (!isCurrentUserAdmin()) {
+      throw new Error('No tienes permisos de administrador para eliminar empleados')
+    }
+
+    console.log('🔄 Attempting to delete employee:', id)
+    
+    const response = await fetch(`${API_BASE_URL}/employees/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    })
+
+    console.log('📡 Delete employee response status:', response.status)
+
+    if (!response.ok) {
+      return handleResponseError(response)
+    }
+    
+    console.log('✅ Employee deleted successfully')
+  } catch (error) {
+    return handleApiError(error, 'deleteEmployee')
+  }
+}
+
+export async function updateEmployeeStatus(id: string, status: string): Promise<void> {
+  try {
+    if (!isCurrentUserAdmin()) {
+      throw new Error('No tienes permisos de administrador para cambiar el estado de empleados')
+    }
+
+    const response = await fetch(`${API_BASE_URL}/employees/${id}/status`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ status }),
+    })
+
+    if (!response.ok) {
+      return handleResponseError(response)
+    }
+    
+    console.log('✅ Employee status updated successfully')
+  } catch (error) {
+    return handleApiError(error, 'updateEmployeeStatus')
+  }
 }
 
 // FUNCIONES PARA RESERVAS
@@ -737,7 +959,7 @@ export async function getRooms(): Promise<Room[]> {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
     }
-    
+
     const response = await fetch(`${API_BASE_URL}/rooms`, {
       headers,
     })

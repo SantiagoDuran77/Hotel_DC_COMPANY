@@ -15,6 +15,7 @@ import serviceRoutes from "./routes/services.js"
 import paymentRoutes from "./routes/payments.js"
 import dashboardRoutes from "./routes/dashboard.js"
 import clientRoutes from "./routes/clients.js"
+import employeeRoutes from "./routes/employees.js" // 🆕 NUEVA RUTA
 
 // Importar middleware
 import { errorHandler } from "./middleware/errorHandler.js"
@@ -76,6 +77,7 @@ app.use("/api/services", serviceRoutes)
 app.use("/api/payments", paymentRoutes)
 app.use("/api/dashboard", dashboardRoutes)
 app.use("/api/clients", clientRoutes)
+app.use("/api/employees", employeeRoutes) // 🆕 NUEVA RUTA
 
 // Ruta de salud del servidor
 app.get("/api/health", (req, res) => {
@@ -110,7 +112,8 @@ app.use("*", (req, res) => {
       "/api/rooms", 
       "/api/services",
       "/api/clients",
-      "/api/reservations"
+      "/api/reservations",
+      "/api/employees" // 🆕 NUEVA RUTA
     ]
   })
 })
@@ -124,10 +127,11 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/health`)
   console.log(`   GET  /api/users`)
   console.log(`   GET  /api/users/test`)
-  console.log(`   GET  /api/rooms`) // ✅ AQUÍ ESTABA FALTANDO ESTA LÍNEA
+  console.log(`   GET  /api/rooms`)
   console.log(`   GET  /api/services`)
   console.log(`   POST /api/clients`)
   console.log(`   POST /api/reservations`)
+  console.log(`   GET  /api/employees`) // 🆕 NUEVA RUTA
 })
 
 // Manejo de errores no capturados
